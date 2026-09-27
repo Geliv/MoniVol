@@ -20,15 +20,11 @@ private let monivolFont: Font = {
 
 struct MenuBarView: View {
     @StateObject private var volumeController = VolumeController.shared
-    @State private var showDeviceList = false
 
     var body: some View {
         VStack(spacing: 0) {
-            // 1. Device name header + dropdown arrow
-            DeviceHeader(
-                deviceName: volumeController.activeDeviceName,
-                isExpanded: $showDeviceList
-            )
+            // 1. Active device
+            DeviceHeader(deviceName: volumeController.activeDeviceName)
 
             Divider()
                 .padding(.horizontal, 12)
@@ -58,17 +54,14 @@ struct MenuBarView: View {
             Divider()
                 .padding(.horizontal, 12)
 
-            // 3. Device list (expandable)
-            if showDeviceList {
-                DeviceListSection(
-                    devices: volumeController.allDevices,
-                    activeUID: volumeController.activeDeviceUID,
-                    onSelect: { device in
-                        volumeController.switchDevice(to: device)
-                        showDeviceList = false
-                    }
-                )
-            }
+            // 3. Device list
+            DeviceListSection(
+                devices: volumeController.allDevices,
+                activeUID: volumeController.activeDeviceUID,
+                onSelect: { device in
+                    volumeController.switchDevice(to: device)
+                }
+            )
 
             // 4. Reconnect audio, update check + Footer
             ReconnectAudioButton()
@@ -93,31 +86,22 @@ struct MenuBarView: View {
 
 struct DeviceHeader: View {
     let deviceName: String
-    @Binding var isExpanded: Bool
 
     var body: some View {
-        Button(action: { isExpanded.toggle() }) {
-            HStack {
-                Image(systemName: "speaker.wave.2.fill")
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary)
+        HStack {
+            Image(systemName: "speaker.wave.2.fill")
+                .font(.system(size: 13))
+                .foregroundColor(.secondary)
 
-                Text(deviceName.isEmpty ? "No Device" : deviceName)
-                    .font(.system(size: 13, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+            Text(deviceName.isEmpty ? "No Device" : deviceName)
+                .font(.system(size: 13, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.tail)
 
-                Spacer()
-
-                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(.secondary)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .contentShape(Rectangle())
+            Spacer()
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
     }
 }
 
@@ -170,18 +154,37 @@ struct DeviceListSection: View {
     let activeUID: String
     let onSelect: (OutputDevice) -> Void
 
+    private let maxVisibleDevices = 8
+    private let rowHeight: CGFloat = 28
+    private let rowSpacing: CGFloat = 2
+    private let verticalPadding: CGFloat = 6
+
     var body: some View {
-        VStack(spacing: 2) {
+        if devices.count > maxVisibleDevices {
+            ScrollView(.vertical) {
+                deviceRows
+            }
+            .frame(height: CGFloat(maxVisibleDevices) * rowHeight
+                + CGFloat(maxVisibleDevices - 1) * rowSpacing
+                + verticalPadding * 2)
+        } else {
+            deviceRows
+        }
+    }
+
+    private var deviceRows: some View {
+        VStack(spacing: rowSpacing) {
             ForEach(devices) { device in
                 DeviceRow(
                     device: device,
                     isActive: device.uid == activeUID,
                     onSelect: { onSelect(device) }
                 )
+                .frame(height: rowHeight)
             }
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.vertical, verticalPadding)
     }
 }
 
