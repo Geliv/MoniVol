@@ -1,0 +1,5 @@
+module CMoniVolDSP {
+    header "monivol_types.h"
+    header "monivol_dsp.h"
+    export *
+}

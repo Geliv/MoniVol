@@ -1,0 +1,4 @@
+module CMoniVolAudio {
+    header "RFSharedAudio.h"
+    export *
+}

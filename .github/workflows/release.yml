@@ -1,0 +1,261 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  MACOSX_DEPLOYMENT_TARGET: "13.0"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build-and-release:
+    name: Build, Sign, Notarize & Release
+    runs-on: macos-14
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Fetch libASPL tags
+        run: |
+          cd packages/driver/vendor/libASPL
+          git fetch --tags --force --prune origin 2>/dev/null || true
+          if ! git describe --tags HEAD >/dev/null 2>&1; then
+            LATEST_TAG=$(git ls-remote --tags origin | sed -n 's|.*refs/tags/\([^{}]*\)$|\1|p' | sort -V | tail -1)
+            if [ -n "$LATEST_TAG" ]; then
+              git tag "$LATEST_TAG" HEAD 2>/dev/null || true
+              echo "Created local tag from remote: $LATEST_TAG"
+            else
+              git tag "v3.0.0" HEAD 2>/dev/null || true
+              echo "Created fallback tag: v3.0.0"
+            fi
+          fi
+          echo "libASPL version: $(git describe --tags --always HEAD 2>/dev/null || echo 'unknown')"
+
+      - name: Determine version
+        id: version
+        run: |
+          # Extract version from release tag (strip refs/tags/ and optional v prefix)
+          RAW_TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${RAW_TAG#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$RAW_TAG" >> "$GITHUB_OUTPUT"
+          echo "Building version: $VERSION"
+
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      #  Update Component Versions
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      - name: Update Component Versions
+        run: |
+          CURRENT_DRIVER_VERSION=$(cat packages/driver/VERSION 2>/dev/null || echo "1.0.0")
+          LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+          if [ -n "$LAST_TAG" ]; then
+            DRIVER_CHANGED=$(git diff --name-only "$LAST_TAG" HEAD -- packages/driver/src packages/driver/include packages/driver/CMakeLists.txt 2>/dev/null | wc -l || echo "1")
+          else
+            DRIVER_CHANGED=1
+          fi
+
+          if [ "$DRIVER_CHANGED" -gt 0 ]; then
+            ./tools/update_versions.sh ${{ steps.version.outputs.version }}
+          else
+            ./tools/update_versions.sh ${{ steps.version.outputs.version }} --app-only
+          fi
+          echo "✓ Version update complete"
+
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      #  Install Apple Certificate
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      - name: Install Apple Certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o $CERTIFICATE_PATH
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          security import $CERTIFICATE_PATH -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+          security find-identity -v -p codesigning $KEYCHAIN_PATH
+          echo "✓ Apple certificate installed"
+
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      #  Build All Components
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      - name: Build DSP Library (universal)
+        run: |
+          cmake -S packages/dsp -B packages/dsp/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          cmake --build packages/dsp/build --config Release --parallel
+          echo "✓ DSP library built (universal)"
+
+      - name: Build HAL Driver (universal)
+        run: |
+          cmake -S packages/driver -B packages/driver/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          cmake --build packages/driver/build --config Release --parallel
+          echo "✓ HAL driver built (universal)"
+
+      - name: Build Host Engine (universal)
+        run: |
+          swift build --configuration release --package-path packages/host \
+            --triple arm64-apple-macosx
+          swift build --configuration release --package-path packages/host \
+            --triple x86_64-apple-macosx
+          mkdir -p packages/host/.build/universal/release
+          lipo -create -output packages/host/.build/universal/release/MoniVolHost \
+            packages/host/.build/arm64-apple-macosx/release/MoniVolHost \
+            packages/host/.build/x86_64-apple-macosx/release/MoniVolHost
+          echo "✓ Host engine built (universal)"
+
+      - name: Build Menu Bar App (universal)
+        run: |
+          swift build --configuration release --package-path apps/mac/MoniVolApp \
+            --triple arm64-apple-macosx
+          swift build --configuration release --package-path apps/mac/MoniVolApp \
+            --triple x86_64-apple-macosx
+          mkdir -p apps/mac/MoniVolApp/.build/universal/release
+          lipo -create -output apps/mac/MoniVolApp/.build/universal/release/MoniVolApp \
+            apps/mac/MoniVolApp/.build/arm64-apple-macosx/release/MoniVolApp \
+            apps/mac/MoniVolApp/.build/x86_64-apple-macosx/release/MoniVolApp
+          echo "✓ Menu bar app built (universal)"
+
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      #  Create App Bundle
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      - name: Create App Bundle
+        run: |
+          make bundle
+          echo "✓ App bundle created"
+
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      #  Code Sign
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      - name: Code Sign App
+        run: |
+          make sign
+          echo "✓ App signed"
+
+      - name: Verify Signatures
+        run: |
+          ./tools/verify_signatures.sh
+          echo "✓ Signatures verified"
+
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      #  Notarize
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      - name: Notarize App
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          ditto -c -k --keepParent dist/MoniVol.app dist/MoniVol.zip
+          RESULT_JSON=$(mktemp)
+
+          if ! xcrun notarytool submit dist/MoniVol.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_ID_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait \
+            --output-format json > "$RESULT_JSON"; then
+            echo "Notary submission failed"
+            cat "$RESULT_JSON" || true
+            exit 1
+          fi
+
+          STATUS=$(python3 -c 'import json,sys,pathlib; d=json.loads(pathlib.Path(sys.argv[1]).read_text()); print(d.get("status",""))' "$RESULT_JSON")
+          echo "Status: $STATUS"
+
+          if [ "$STATUS" != "Accepted" ]; then
+            echo "Notarization failed with status: $STATUS"
+            exit 1
+          fi
+
+          xcrun stapler staple dist/MoniVol.app
+          rm dist/MoniVol.zip "$RESULT_JSON"
+          echo "✓ App notarized and stapled"
+
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      #  Create DMG
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      - name: Install DMG Tools
+        run: |
+          brew install create-dmg
+          echo "✓ create-dmg installed"
+
+      - name: Create DMG
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          ./tools/create_dmg.sh
+
+          IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+          if [ -z "$IDENTITY" ]; then
+            echo "ERROR: No Developer ID Application certificate found"
+            exit 1
+          fi
+          codesign --force --sign "$IDENTITY" --timestamp "dist/MoniVol.dmg"
+
+          xcrun notarytool submit "dist/MoniVol.dmg" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_ID_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+
+          xcrun stapler staple "dist/MoniVol.dmg"
+          echo "✓ DMG created, signed, notarized, and stapled"
+
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      #  Generate Checksums
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      - name: Generate Checksums
+        run: |
+          cd dist
+          shasum -a 256 *.dmg > checksums.txt
+          cat checksums.txt
+          echo "✓ Checksums generated"
+
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      #  Upload to GitHub Release
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.dmg
+            dist/checksums.txt
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      #  Cleanup
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      - name: Cleanup Keychain
+        if: always()
+        run: |
+          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
