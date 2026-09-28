@@ -10,8 +10,11 @@
 
 连接显示器后，可以使用 Mac 键盘音量键、静音键和系统音量滑块调节声音。MoniVol 不提供 EQ、分应用音量、音效插件或复杂的音频路由，只专注于外接显示器音量控制。
 
-| ![MoniVol 菜单栏弹窗](assets/menu-bar.png) | ![MoniVol 更多操作菜单](assets/more-actions.png) |
+| ![MoniVol 菜单栏弹窗](assets/menu-bar.png) | ![MoniVol 出现在控制中心输出列表](assets/control-center.png) |
 | :---: | :---: |
+| *菜单栏弹窗* | *控制中心输出列表* |
+| ![使用 MoniVol 前音量不可调节](assets/volume-before.png) | ![使用 MoniVol 后音量正常调节](assets/volume-after.png) |
+| *使用前：外接显示器音量不可调节* | *使用后：音量正常调节* |
 
 ## 功能
 

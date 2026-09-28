@@ -10,8 +10,11 @@ English | [简体中文](README.zh-CN.md)
 
 Use your Mac's volume keys, mute key, and system volume slider with a connected display. MoniVol focuses on this one task: it does not include an EQ, per-app volume controls, audio effects, or complex routing.
 
-| ![MoniVol menu bar popover](assets/menu-bar.png) | ![MoniVol More actions menu](assets/more-actions.png) |
+| ![MoniVol menu bar popover](assets/menu-bar.png) | ![MoniVol in Control Center output list](assets/control-center.png) |
 | :---: | :---: |
+| *Menu bar popover* | *Control Center output list* |
+| ![Volume OSD unavailable before MoniVol](assets/volume-before.png) | ![Volume OSD working after MoniVol](assets/volume-after.png) |
+| *Before: display volume cannot be adjusted* | *After: volume works normally* |
 
 ## Features
 
