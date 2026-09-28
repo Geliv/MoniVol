@@ -44,6 +44,8 @@ private enum MenuLanguage: String, CaseIterable {
         "Quit App": .init(japanese: "アプリを終了", french: "Quitter l’app", german: "App beenden", russian: "Выйти"),
         "External display volume": .init(japanese: "外部ディスプレイの音量", french: "Volume de l’écran externe", german: "Lautstärke des Monitors", russian: "Громкость монитора"),
         "More options": .init(japanese: "その他の操作", french: "Plus d’options", german: "Weitere Optionen", russian: "Дополнительно"),
+        "Open at Login": .init(japanese: "ログイン時に開く", french: "Ouvrir à la connexion", german: "Bei Anmeldung öffnen", russian: "Открывать при входе"),
+        "Could Not Change Login Setting": .init(japanese: "ログイン設定を変更できませんでした", french: "Impossible de modifier le réglage de connexion", german: "Anmeldeeinstellung konnte nicht geändert werden", russian: "Не удалось изменить настройку входа"),
         "Check for Updates": .init(japanese: "更新を確認", french: "Vérifier les mises à jour", german: "Auf Updates prüfen", russian: "Проверить обновления"),
         "About MoniVol": .init(japanese: "MoniVol について", french: "À propos de MoniVol", german: "Über MoniVol", russian: "О MoniVol"),
         "No Device": .init(japanese: "デバイスなし", french: "Aucun appareil", german: "Kein Gerät", russian: "Нет устройства"),
@@ -73,6 +75,8 @@ struct MenuBarView: View {
     @State private var isCheckingUpdates = false
     @State private var showOptions = false
     @State private var showLanguages = false
+    @State private var opensAtLogin = false
+    @State private var isUpdatingLoginItem = false
 
     private var language: MenuLanguage {
         MenuLanguage(rawValue: languageCode) ?? .english
@@ -235,6 +239,7 @@ struct MenuBarView: View {
             Button {
                 showOptions.toggle()
                 showLanguages = false
+                if showOptions { refreshLoginItemState() }
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 16, weight: .semibold))
@@ -255,6 +260,15 @@ struct MenuBarView: View {
 
     private var optionsMenu: some View {
         VStack(spacing: 2) {
+            Button(action: toggleOpenAtLogin) {
+                OptionsMenuRow(
+                    title: language.text("Open at Login", "登录时打开"),
+                    symbol: nil,
+                    isChecked: opensAtLogin
+                )
+            }
+            .disabled(isUpdatingLoginItem)
+
             Button {
                 showOptions = false
                 isCheckingUpdates = true
@@ -295,6 +309,38 @@ struct MenuBarView: View {
                         .strokeBorder(Color.primary.opacity(0.13), lineWidth: 1)
                 }
         )
+    }
+
+    private func refreshLoginItemState() {
+        isUpdatingLoginItem = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let enabled = try? LoginItemManager.isEnabled()
+            DispatchQueue.main.async {
+                if let enabled { opensAtLogin = enabled }
+                isUpdatingLoginItem = false
+            }
+        }
+    }
+
+    private func toggleOpenAtLogin() {
+        isUpdatingLoginItem = true
+        let shouldEnable = !opensAtLogin
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { try LoginItemManager.setEnabled(shouldEnable) }
+            DispatchQueue.main.async {
+                isUpdatingLoginItem = false
+                switch result {
+                case .success(let enabled):
+                    opensAtLogin = enabled
+                case .failure(let error):
+                    let alert = NSAlert()
+                    alert.messageText = language.text("Could Not Change Login Setting", "无法更改登录设置")
+                    alert.informativeText = error.localizedDescription
+                    alert.alertStyle = .warning
+                    alert.runModal()
+                }
+            }
+        }
     }
 
     private func languageOption(_ option: MenuLanguage) -> some View {
@@ -340,15 +386,23 @@ struct MenuBarView: View {
 
 private struct OptionsMenuRow: View {
     let title: String
-    let symbol: String
+    let symbol: String?
+    var isChecked = false
     @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: symbol)
-                .font(.system(size: 13))
-                .frame(width: 18)
-                .foregroundColor(.secondary)
+            Group {
+                if let symbol {
+                    Image(systemName: symbol)
+                        .foregroundColor(.secondary)
+                } else {
+                    Image(systemName: isChecked ? "checkmark.square" : "square")
+                        .foregroundColor(.secondary)
+                }
+            }
+            .font(.system(size: 13))
+            .frame(width: 18)
             Text(title)
                 .font(.system(size: 12))
             Spacer(minLength: 0)

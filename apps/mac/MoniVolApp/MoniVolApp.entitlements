@@ -15,6 +15,8 @@
 	<!-- App Sandbox - Disabled for menu bar app that launches host process -->
 	<key>com.apple.security.app-sandbox</key>
 	<false/>
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
 
 	<!-- Network Access - May be needed for future features -->
 	<key>com.apple.security.network.client</key>

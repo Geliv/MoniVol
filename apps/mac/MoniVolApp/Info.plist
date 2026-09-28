@@ -20,5 +20,7 @@
 	<string>13.0</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>MoniVol uses System Events to manage its Open at Login setting.</string>
 </dict>
 </plist>
