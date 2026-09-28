@@ -20,6 +20,7 @@ Use your Mac's volume keys, mute key, and system volume slider with a connected 
 
 - **System volume control**: Adds software volume and mute control for HDMI and DisplayPort displays that lack it.
 - **Menu bar controls**: Adjust volume, mute, switch output devices, and check for updates.
+- **Open at Login**: Start MoniVol automatically when you log in, using a checkbox in the More options menu.
 - **Native SwiftUI interface**: A modern, uncluttered menu bar layout.
 - **Small footprint**: The current DMG is under 5 MB, and MoniVol uses less than 30 MB of memory in the author's everyday setup.
 - **Automatic display handling**: Switches to built-in output when a display disconnects, then restores the corresponding MoniVol output when it reconnects.
@@ -49,6 +50,8 @@ brew install --cask Geliv/tap/monivol
 ```
 
 Then launch MoniVol and complete steps 2–3 above.
+
+To start MoniVol automatically, open **More options → Open at Login** in the menu bar popover and check the option.
 
 MoniVol is not notarized by Apple. If macOS blocks the first launch, go to **System Settings → Privacy & Security** and choose **Open Anyway**, or remove the app's quarantine attribute in Terminal:
 
