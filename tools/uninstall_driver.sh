@@ -3,7 +3,7 @@
 
 echo "  Uninstalling MoniVol driver..."
 
-osascript -e 'do shell script "rm -rf /Library/Audio/Plug-Ins/HAL/MoniVolDriver.driver /Library/Audio/Plug-Ins/HAL/SoundBridgeDriver.driver && killall coreaudiod" with administrator privileges'
+osascript -e 'do shell script "rm -rf /Library/Audio/Plug-Ins/HAL/MoniVolDriver.driver && killall coreaudiod" with administrator privileges'
 
 if [ $? -eq 0 ]; then
     echo "OK: Driver uninstalled successfully"

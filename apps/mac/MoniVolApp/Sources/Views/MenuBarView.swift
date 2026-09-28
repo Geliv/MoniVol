@@ -658,8 +658,8 @@ private struct UninstallButton: View {
         // (e.g. coreaudiod restart returning non-zero) does not abort
         // the entire script and cause the app to skip cleanup.
         let script = """
-        do shell script "killall MoniVolHost SoundBridgeHost 2>/dev/null || true; \
-        rm -rf /Library/Audio/Plug-Ins/HAL/MoniVolDriver.driver /Library/Audio/Plug-Ins/HAL/SoundBridgeDriver.driver || true; \
+        do shell script "killall MoniVolHost 2>/dev/null || true; \
+        rm -rf /Library/Audio/Plug-Ins/HAL/MoniVolDriver.driver || true; \
         rm -f /tmp/monivol-devices.txt 2>/dev/null || true; \
         rm -f /tmp/monivol-* 2>/dev/null || true; \
         killall coreaudiod 2>/dev/null || true" with administrator privileges

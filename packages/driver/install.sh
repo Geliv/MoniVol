@@ -5,7 +5,6 @@ set -e
 
 DRIVER_PATH="./build/MoniVolDriver.driver"
 INSTALL_PATH="/Library/Audio/Plug-Ins/HAL/MoniVolDriver.driver"
-LEGACY_INSTALL_PATH="/Library/Audio/Plug-Ins/HAL/SoundBridgeDriver.driver"
 
 echo "MoniVol HAL Driver Installer"
 echo "=============================="
@@ -17,9 +16,8 @@ if [ ! -d "$DRIVER_PATH" ]; then
     exit 1
 fi
 
-# Replace either generation of the driver before restarting Core Audio.
-sudo killall SoundBridgeHost 2>/dev/null || true
-sudo rm -rf "$INSTALL_PATH" "$LEGACY_INSTALL_PATH"
+# Replace only the MoniVol driver before restarting Core Audio.
+sudo rm -rf "$INSTALL_PATH"
 
 # Install driver
 echo "Installing driver to $INSTALL_PATH..."

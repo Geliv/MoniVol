@@ -4,13 +4,12 @@
 set -e
 
 INSTALL_PATH="/Library/Audio/Plug-Ins/HAL/MoniVolDriver.driver"
-LEGACY_INSTALL_PATH="/Library/Audio/Plug-Ins/HAL/SoundBridgeDriver.driver"
 
 echo "MoniVol HAL Driver Uninstaller"
 echo "================================"
 
 # Check if installed
-if [ ! -d "$INSTALL_PATH" ] && [ ! -d "$LEGACY_INSTALL_PATH" ]; then
+if [ ! -d "$INSTALL_PATH" ]; then
     echo "Driver not found at $INSTALL_PATH"
     echo "Nothing to uninstall."
     exit 0
@@ -18,7 +17,7 @@ fi
 
 # Uninstall driver
 echo "Removing driver from $INSTALL_PATH..."
-sudo rm -rf "$INSTALL_PATH" "$LEGACY_INSTALL_PATH"
+sudo rm -rf "$INSTALL_PATH"
 
 echo ""
 echo "Driver uninstalled successfully!"

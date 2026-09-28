@@ -54,7 +54,6 @@ class DriverInstaller: ObservableObject {
     @Published var progress: Double = 0.0
 
     private let driverName = "MoniVolDriver.driver"
-    private let legacyDriverName = "SoundBridgeDriver.driver"
     private let driverDestination = "/Library/Audio/Plug-Ins/HAL"
 
     /// Install the driver with progress updates
@@ -148,9 +147,7 @@ class DriverInstaller: ObservableObject {
     /// Check if driver is installed (file exists)
     func isDriverInstalled() -> Bool {
         let driverPath = "\(driverDestination)/\(driverName)"
-        let legacyPath = "\(driverDestination)/\(legacyDriverName)"
         return FileManager.default.fileExists(atPath: driverPath)
-            && !FileManager.default.fileExists(atPath: legacyPath)
     }
 
     /// Find driver bundle in app resources
@@ -179,13 +176,10 @@ class DriverInstaller: ObservableObject {
         let escapedDest = driverDestination.replacingOccurrences(of: "'", with: "'\\''")
         let driverPath = "\(driverDestination)/\(driverName)"
         let escapedDriverPath = driverPath.replacingOccurrences(of: "'", with: "'\\''")
-        let legacyPath = "\(driverDestination)/\(legacyDriverName)"
-        let escapedLegacyPath = legacyPath.replacingOccurrences(of: "'", with: "'\\''")
 
         // Combine all operations into single command chain
         let script = """
-        do shell script "killall SoundBridgeHost 2>/dev/null || true; \
-        rm -rf '\(escapedLegacyPath)' '\(escapedDriverPath)' && \
+        do shell script "rm -rf '\(escapedDriverPath)' && \
         cp -R '\(escapedSource)' '\(escapedDest)/' && \
         chown -R root:wheel '\(escapedDriverPath)' && \
         chmod -R 755 '\(escapedDriverPath)' && \
@@ -278,10 +272,7 @@ class DriverInstaller: ObservableObject {
     func uninstallDriver() throws {
         let driverPath = "\(driverDestination)/\(driverName)"
         let escapedPath = driverPath.replacingOccurrences(of: "'", with: "'\\''")
-        let legacyPath = "\(driverDestination)/\(legacyDriverName)"
-        let escapedLegacyPath = legacyPath.replacingOccurrences(of: "'", with: "'\\''")
-
-        let script = "do shell script \"rm -rf '\(escapedPath)' '\(escapedLegacyPath)'\" with administrator privileges"
+        let script = "do shell script \"rm -rf '\(escapedPath)'\" with administrator privileges"
 
         let appleScript = NSAppleScript(source: script)
         var errorDict: NSDictionary?
