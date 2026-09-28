@@ -39,19 +39,27 @@ Download the latest `MoniVol.dmg` from [GitHub Releases](https://github.com/Geli
 2. Launch MoniVol and follow the first-run guide to install the audio driver. This step requires an administrator password.
 3. Select the display in MoniVol's menu bar device list, or select its corresponding `(MoniVol)` output in macOS Sound settings.
 
+Alternatively, install the app from the [MoniVol Homebrew tap](https://github.com/Geliv/homebrew-tap):
+
+```bash
+brew install --cask Geliv/tap/monivol
+```
+
+Then launch MoniVol and complete steps 2–3 above.
+
 MoniVol is not notarized by Apple. If macOS blocks the first launch, go to **System Settings → Privacy & Security** and choose **Open Anyway**, or remove the app's quarantine attribute in Terminal:
 
 ```bash
 xattr -rd com.apple.quarantine /Applications/MoniVol.app
 ```
 
-You can then use the system volume keys, mute key, and volume slider. A Homebrew installation method is not available.
+You can then use the system volume keys, mute key, and volume slider.
 
 ## Uninstall
 
 1. Open MoniVol from the menu bar and select **Uninstall Driver**.
 2. Quit MoniVol. It also quits automatically after the driver is removed.
-3. Move `MoniVol.app` from Applications to the Trash.
+3. Move `MoniVol.app` from Applications to the Trash. If you installed it through Homebrew, run `brew uninstall --cask Geliv/tap/monivol` instead.
 
 ## How It Works
 

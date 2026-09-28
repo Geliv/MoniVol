@@ -39,19 +39,27 @@ SoundSource、eqMac、FineTune 等应用覆盖更广的音频控制需求，例�
 2. 启动 MoniVol，按首次运行引导安装音频驱动；此步骤需要管理员密码。
 3. 在 MoniVol 菜单栏的输出设备列表中选择显示器，或在系统声音输出列表中选择对应的 `（MoniVol）` 设备。
 
+也可以通过 [MoniVol Homebrew tap](https://github.com/Geliv/homebrew-tap) 安装应用：
+
+```bash
+brew install --cask Geliv/tap/monivol
+```
+
+安装后启动 MoniVol，按上面的第 2–3 步完成设置。
+
 MoniVol 未经过 Apple 公证。如果 macOS 阻止首次打开，可前往“系统设置 → 隐私与安全性”选择“仍要打开”，或在终端移除应用的隔离属性：
 
 ```bash
 xattr -rd com.apple.quarantine /Applications/MoniVol.app
 ```
 
-之后即可使用系统音量键、静音键和音量滑块。Homebrew 安装方式尚未提供。
+之后即可使用系统音量键、静音键和音量滑块。
 
 ## 卸载
 
 1. 在菜单栏打开 MoniVol，选择“Uninstall Driver”并完成驱动卸载。
 2. 退出 MoniVol；卸载驱动后应用也会自动退出。
-3. 将“应用程序”目录中的 `MoniVol.app` 移入废纸篓。
+3. 将“应用程序”目录中的 `MoniVol.app` 移入废纸篓。如果通过 Homebrew 安装，改为运行 `brew uninstall --cask Geliv/tap/monivol`。
 
 ## 工作原理
 
