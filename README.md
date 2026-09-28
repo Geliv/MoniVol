@@ -24,6 +24,28 @@ SoundSource、eqMac、FineTune 等应用覆盖更广的音频控制需求，例�
 
 在作者的日常使用环境中，SoundSource 长时间运行后的内存占用曾达到约 400–500 MB，而 MoniVol 通常不到其十分之一。这是个人设备上的观察，内存占用会随系统版本、连接设备和运行时间变化。
 
+## 安装
+
+仓库目前为私有；具有访问权限的账号可从 [GitHub Releases](https://github.com/Geliv/MoniVol/releases/latest) 下载最新的 `MoniVol.dmg`：
+
+1. 打开 DMG，将 `MoniVol.app` 拖入“应用程序”目录。
+2. 启动 MoniVol，按首次运行引导安装音频驱动；此步骤需要管理员密码。
+3. 在系统声音输出列表中选择显示器对应的 `（MoniVol）` 设备。
+
+MoniVol 未经过 Apple 公证。如果 macOS 阻止首次打开，可前往“系统设置 → 隐私与安全性”选择“仍要打开”，或在终端移除应用的隔离属性：
+
+```bash
+xattr -rd com.apple.quarantine /Applications/MoniVol.app
+```
+
+之后即可使用系统音量键、静音键和音量滑块。Homebrew 安装方式尚未提供。
+
+## 卸载
+
+1. 在菜单栏打开 MoniVol，选择“Uninstall Driver”并完成驱动卸载。
+2. 退出 MoniVol；卸载驱动后应用也会自动退出。
+3. 将“应用程序”目录中的 `MoniVol.app` 移入废纸篓。
+
 ## 工作原理
 
 对于缺少可写音量控制的 HDMI／DisplayPort 输出，MoniVol 会创建对应的虚拟音频设备：
@@ -39,22 +61,6 @@ MoniVol 虚拟输出
 ```
 
 系统音量控制作用在虚拟设备上，MoniVol Host 根据音量值调整音频增益，再将声音送往实际显示器。其他输出设备不经过这条链路。
-
-## 安装
-
-从 [GitHub Releases](https://github.com/Geliv/MoniVol/releases/latest) 下载最新的 `MoniVol.dmg`：
-
-1. 打开 DMG，将 `MoniVol.app` 拖入“应用程序”目录。
-2. 启动 MoniVol，按首次运行引导安装音频驱动；此步骤需要管理员密码。
-3. 在系统声音输出列表中选择显示器对应的 `（MoniVol）` 设备。
-
-之后即可使用系统音量键、静音键和音量滑块。当前 Release 尚未配置 Developer ID 签名与 Apple 公证；如果 macOS 阻止首次打开，前往“系统设置 → 隐私与安全性”选择“仍要打开”。Homebrew 安装方式尚未提供。
-
-## 卸载
-
-1. 在菜单栏打开 MoniVol，选择“Uninstall Driver”并完成驱动卸载。
-2. 退出 MoniVol；卸载驱动后应用也会自动退出。
-3. 将“应用程序”目录中的 `MoniVol.app` 移入废纸篓。
 
 ## 从源码构建
 
@@ -82,7 +88,7 @@ sudo ditto dist/MoniVol.app /Applications/MoniVol.app
 open /Applications/MoniVol.app
 ```
 
-本地源码构建不包含 Developer ID 签名和 Apple 公证。GitHub Actions 在仓库配置相应凭据后才会对发行包签名与公证。
+项目不提供 Developer ID 签名，GitHub Release 和本地源码构建均不经过 Apple 公证。
 
 ## 致谢
 
