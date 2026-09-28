@@ -111,4 +111,4 @@ MoniVol's early implementation drew on [SoundBridge](https://github.com/chenjy16
 
 ## License
 
-License information is pending.
+MoniVol is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE). It is free for personal, educational, and other noncommercial use. Commercial use requires prior permission from the author.
