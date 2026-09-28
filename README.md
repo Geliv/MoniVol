@@ -33,13 +33,13 @@ In the author's everyday setup, SoundSource has reached about 400–500 MB of me
 
 ## Install
 
-The repository is currently private. If you have access, download the latest `MoniVol.dmg` from [GitHub Releases](https://github.com/Geliv/MoniVol/releases/latest):
+Download the latest `MoniVol.dmg` from [GitHub Releases](https://github.com/Geliv/MoniVol/releases/latest):
 
 1. Open the DMG and drag `MoniVol.app` into Applications.
 2. Launch MoniVol and follow the first-run guide to install the audio driver. This step requires an administrator password.
-3. In macOS Sound settings, select the display's corresponding `(MoniVol)` output device.
+3. Select the display in MoniVol's menu bar device list, or select its corresponding `(MoniVol)` output in macOS Sound settings.
 
-MoniVol is not Developer ID signed or notarized by Apple. If macOS blocks the first launch, go to **System Settings → Privacy & Security** and choose **Open Anyway**, or remove the app's quarantine attribute in Terminal:
+MoniVol is not notarized by Apple. If macOS blocks the first launch, go to **System Settings → Privacy & Security** and choose **Open Anyway**, or remove the app's quarantine attribute in Terminal:
 
 ```bash
 xattr -rd com.apple.quarantine /Applications/MoniVol.app

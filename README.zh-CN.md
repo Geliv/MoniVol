@@ -33,13 +33,13 @@ SoundSource、eqMac、FineTune 等应用覆盖更广的音频控制需求，例�
 
 ## 安装
 
-仓库目前为私有；具有访问权限的账号可从 [GitHub Releases](https://github.com/Geliv/MoniVol/releases/latest) 下载最新的 `MoniVol.dmg`：
+从 [GitHub Releases](https://github.com/Geliv/MoniVol/releases/latest) 下载最新的 `MoniVol.dmg`：
 
 1. 打开 DMG，将 `MoniVol.app` 拖入“应用程序”目录。
 2. 启动 MoniVol，按首次运行引导安装音频驱动；此步骤需要管理员密码。
-3. 在系统声音输出列表中选择显示器对应的 `（MoniVol）` 设备。
+3. 在 MoniVol 菜单栏的输出设备列表中选择显示器，或在系统声音输出列表中选择对应的 `（MoniVol）` 设备。
 
-MoniVol 不提供 Developer ID 签名，也未经过 Apple 公证。如果 macOS 阻止首次打开，可前往“系统设置 → 隐私与安全性”选择“仍要打开”，或在终端移除应用的隔离属性：
+MoniVol 未经过 Apple 公证。如果 macOS 阻止首次打开，可前往“系统设置 → 隐私与安全性”选择“仍要打开”，或在终端移除应用的隔离属性：
 
 ```bash
 xattr -rd com.apple.quarantine /Applications/MoniVol.app
