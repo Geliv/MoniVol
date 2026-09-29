@@ -16,6 +16,7 @@
 - 本项目没有自动化测试入口；音频设备插拔、默认输出切换和实际播放需要手动验证。
 - `make build` 会先运行 `tools/update_versions.sh`，按最新 Git tag 更新 App、Host 和驱动版本文件。构建前后检查版本文件差异；没有 tag 时脚本使用 `1.0.0`。
 - 发布更新使用以 `v` 开头的 tag；CI 从 `SPARKLE_PRIVATE_KEY` secret 签名更新，并将 `appcast.xml` 部署到 GitHub Pages。
+- 每次发布新版本时，等待 GitHub Release 工作流完成并上传正式 DMG，再用其 SHA-256 同步 `Geliv/homebrew-tap` 仓库 `Casks/monivol.rb` 中的 `version` 和 `sha256`，验证下载地址后提交并推送 tap。
 - `make reset`、`packages/driver/install.sh` 和驱动卸载脚本会改动本机音频环境；不要把它们当作普通静态检查命令。
 
 ## 音频链路约束
