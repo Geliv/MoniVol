@@ -13,21 +13,21 @@
 	<key>CFBundleName</key>
 	<string>MoniVol</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.1.1</string>
+	<string>1.1.5</string>
 	<key>CFBundleVersion</key>
-	<string>1.1.1</string>
+	<string>1.1.5</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
-	<key>NSPrincipalClass</key>
-	<string>NSApplication</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>MoniVol uses System Events to manage its Open at Login setting.</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>SUEnableAutomaticChecks</key>
+	<false/>
 	<key>SUFeedURL</key>
 	<string>https://geliv.github.io/MoniVol/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>/8B+H9nfrIxZLX9FDxVTDr8aEMMfOzvQcbuupenWo4I=</string>
-	<key>SUEnableAutomaticChecks</key>
-	<false/>
 	<key>SURequireSignedFeed</key>
 	<true/>
 	<key>SUVerifyUpdateBeforeExtraction</key>

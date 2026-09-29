@@ -3,6 +3,7 @@ import CoreAudio
 import Combine
 import Darwin
 import os.log
+import MoniVolCore
 
 // Darwin notify API — not always visible during x86_64 cross-compilation.
 @_silgen_name("notify_post")
@@ -102,13 +103,13 @@ class VolumeController: ObservableObject {
         var devices: [OutputDevice] = []
 
         for deviceID in deviceIDs {
-            guard let name = getDeviceName(deviceID),
-                  let uid = getDeviceUID(deviceID) else { continue }
+            guard let name = DeviceQuery.name(deviceID),
+                  let uid = DeviceQuery.uid(deviceID) else { continue }
 
             // Skip MoniVol proxy devices in the user-facing device list
-            if name.contains("MoniVol") { continue }
+            if name.contains(ProxyNaming.nameMarker) { continue }
 
-            let isFixed = !deviceHasVolumeControl(deviceID)
+            let isFixed = !DeviceQuery.hasWritableVolumeControl(deviceID)
             devices.append(OutputDevice(id: deviceID, name: name, uid: uid, isFixedVolume: isFixed))
         }
 
@@ -122,17 +123,17 @@ class VolumeController: ObservableObject {
         stopListening()
 
         guard let defaultDeviceID = getDefaultOutputDevice() else { return }
-        guard let name = getDeviceName(defaultDeviceID),
-              let uid = getDeviceUID(defaultDeviceID) else { return }
+        guard let name = DeviceQuery.name(defaultDeviceID),
+              let uid = DeviceQuery.uid(defaultDeviceID) else { return }
 
-        if name.contains("MoniVol") {
+        if name.contains(ProxyNaming.nameMarker) {
             // Current default is a proxy device
             proxyDeviceID = defaultDeviceID
             physicalDeviceID = kAudioObjectUnknown
 
             // Extract physical device info from proxy UID
-            let physicalUID = uid.components(separatedBy: "-monivol").first ?? uid
-            let physicalName = name.replacingOccurrences(of: " (MoniVol)", with: "")
+            let physicalUID = ProxyNaming.physicalUID(from: uid) ?? uid
+            let physicalName = name.replacingOccurrences(of: ProxyNaming.nameSuffix, with: "")
 
             DispatchQueue.main.async { [weak self] in
                 self?.activeDeviceName = physicalName
@@ -146,7 +147,7 @@ class VolumeController: ObservableObject {
         } else {
             // Current default is a physical device (no proxy)
             proxyDeviceID = kAudioObjectUnknown
-            let hasVolume = deviceHasVolumeControl(defaultDeviceID)
+            let hasVolume = DeviceQuery.hasWritableVolumeControl(defaultDeviceID)
 
             if hasVolume {
                 physicalDeviceID = defaultDeviceID
@@ -540,10 +541,10 @@ class VolumeController: ObservableObject {
     /// Find the MoniVol proxy device ID for a given physical device UID.
     /// Returns nil if no proxy exists (e.g. Host not running).
     private func findProxyDeviceID(forPhysicalUID physicalUID: String) -> AudioDeviceID? {
-        let proxyUID = "\(physicalUID)-monivol"
+        let proxyUID = ProxyNaming.proxyUID(for: physicalUID)
         let allIDs = getAllOutputDeviceIDs()
         for id in allIDs {
-            if let uid = getDeviceUID(id), uid == proxyUID {
+            if let uid = DeviceQuery.uid(id), uid == proxyUID {
                 return id
             }
         }
@@ -571,98 +572,8 @@ class VolumeController: ObservableObject {
     }
 
     private func getAllOutputDeviceIDs() -> [AudioDeviceID] {
-        var propertyAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDevices,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-
-        var dataSize: UInt32 = 0
-        guard AudioObjectGetPropertyDataSize(
-            AudioObjectID(kAudioObjectSystemObject),
-            &propertyAddress, 0, nil, &dataSize
-        ) == noErr else { return [] }
-
-        let count = Int(dataSize) / MemoryLayout<AudioDeviceID>.size
-        var deviceIDs = [AudioDeviceID](repeating: 0, count: count)
-
-        guard AudioObjectGetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject),
-            &propertyAddress, 0, nil, &dataSize, &deviceIDs
-        ) == noErr else { return [] }
-
         // Filter to output devices only
-        return deviceIDs.filter { deviceHasOutputStreams($0) }
-    }
-
-    private func getDeviceName(_ deviceID: AudioDeviceID) -> String? {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyDeviceNameCFString,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-
-        var name: Unmanaged<CFString>?
-        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-
-        let status = withUnsafeMutablePointer(to: &name) { ptr in
-            AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, ptr)
-        }
-        guard status == noErr, let cfName = name?.takeUnretainedValue() else {
-            if status != noErr {
-                logger.error("getDeviceName(\(deviceID)) failed: \(formatOSStatus(status))")
-            }
-            return nil
-        }
-        return cfName as String
-    }
-
-    private func getDeviceUID(_ deviceID: AudioDeviceID) -> String? {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyDeviceUID,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-
-        var uid: Unmanaged<CFString>?
-        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-
-        let status = withUnsafeMutablePointer(to: &uid) { ptr in
-            AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, ptr)
-        }
-        guard status == noErr, let cfUID = uid?.takeUnretainedValue() else {
-            if status != noErr {
-                logger.error("getDeviceUID(\(deviceID)) failed: \(formatOSStatus(status))")
-            }
-            return nil
-        }
-        return cfUID as String
-    }
-
-    private func deviceHasOutputStreams(_ deviceID: AudioDeviceID) -> Bool {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyStreams,
-            mScope: kAudioDevicePropertyScopeOutput,
-            mElement: kAudioObjectPropertyElementMain
-        )
-
-        var size: UInt32 = 0
-        return AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &size) == noErr && size > 0
-    }
-
-    private func deviceHasVolumeControl(_ deviceID: AudioDeviceID) -> Bool {
-        let elements: [UInt32] = [kAudioObjectPropertyElementMain, 1, 2]
-        for element in elements {
-            var address = AudioObjectPropertyAddress(
-                mSelector: kAudioDevicePropertyVolumeScalar,
-                mScope: kAudioDevicePropertyScopeOutput,
-                mElement: element
-            )
-            if AudioObjectHasProperty(deviceID, &address) {
-                return true
-            }
-        }
-        return false
+        return DeviceQuery.allDeviceIDs().filter { DeviceQuery.hasOutputStreams($0) }
     }
 
     // MARK: - Device Bounce (Reconnect Audio)
@@ -672,7 +583,7 @@ class VolumeController: ObservableObject {
     func bounceDevice() {
         // Use _notify_post to send bounce request to Host — Host is the single
         // source of truth for CoreAudio device control.
-        _ = _notify_post("com.monivol.bounce-request")
+        _ = _notify_post(MonivolNotifications.bounceRequest)
         logger.info("Sent bounce request to Host")
     }
 }

@@ -1,6 +1,7 @@
 import Foundation
 import CoreAudio
 import os.log
+import MoniVolCore
 
 private let logger = Logger(subsystem: "com.monivol.host", category: "DeviceDiscovery")
 
@@ -66,19 +67,19 @@ class DeviceDiscovery {
         for (index, deviceID) in deviceIDs.enumerated() {
             print("[DeviceEnum] --- Checking device \(index + 1)/\(deviceCount) (ID: \(deviceID)) ---")
 
-            guard let name = getDeviceName(deviceID) else {
+            guard let name = DeviceQuery.name(deviceID) else {
                 print("[DeviceEnum] ✗ SKIP: Failed to get device name")
                 continue
             }
 
             print("[DeviceEnum]   Name: \(name)")
 
-            if name.contains("MoniVol") || name.contains("Netcat") {
+            if name.contains(ProxyNaming.nameMarker) || name.contains("Netcat") {
                 print("[DeviceEnum] ✗ SKIP: MoniVol/Netcat device")
                 continue
             }
 
-            guard let uid = getDeviceUID(deviceID) else {
+            guard let uid = DeviceQuery.uid(deviceID) else {
                 print("[DeviceEnum] ✗ SKIP: Failed to get device UID")
                 continue
             }
@@ -102,7 +103,7 @@ class DeviceDiscovery {
                 continue
             }
 
-            let hasStreams = deviceHasOutputStreams(deviceID)
+            let hasStreams = DeviceQuery.hasOutputStreams(deviceID)
             print("[DeviceEnum]   Output streams: \(hasStreams ? "Yes" : "No")")
 
             guard hasStreams else {
@@ -124,7 +125,7 @@ class DeviceDiscovery {
             }
 
             // Check if device supports hardware volume control
-            let fixedVolume = !deviceHasVolumeControl(deviceID)
+            let fixedVolume = !DeviceQuery.hasWritableVolumeControl(deviceID)
             print("[DeviceEnum]   Volume control: \(fixedVolume ? "Fixed (no hardware volume)" : "Adjustable (hardware volume supported)")")
 
             devices.append(PhysicalDevice(
@@ -182,44 +183,6 @@ class DeviceDiscovery {
         }
     }
 
-    private func getDeviceName(_ deviceID: AudioDeviceID) -> String? {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyDeviceNameCFString,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-
-        var name: Unmanaged<CFString>?
-        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-
-        let status = withUnsafeMutablePointer(to: &name) { ptr in
-            AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, ptr)
-        }
-        guard status == noErr, let cfName = name?.takeUnretainedValue() else {
-            return nil
-        }
-        return cfName as String
-    }
-
-    private func getDeviceUID(_ deviceID: AudioDeviceID) -> String? {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyDeviceUID,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-
-        var name: Unmanaged<CFString>?
-        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-
-        let status = withUnsafeMutablePointer(to: &name) { ptr in
-            AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, ptr)
-        }
-        guard status == noErr, let cfName = name?.takeUnretainedValue() else {
-            return nil
-        }
-        return cfName as String
-    }
-
     private func getDeviceManufacturer(_ deviceID: AudioDeviceID) -> String {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyDeviceManufacturerCFString,
@@ -254,17 +217,6 @@ class DeviceDiscovery {
         }
 
         return transportType
-    }
-
-    private func deviceHasOutputStreams(_ deviceID: AudioDeviceID) -> Bool {
-        var streamAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyStreams,
-            mScope: kAudioDevicePropertyScopeOutput,
-            mElement: kAudioObjectPropertyElementMain
-        )
-
-        var streamSize: UInt32 = 0
-        return AudioObjectGetPropertyDataSize(deviceID, &streamAddress, 0, nil, &streamSize) == noErr && streamSize > 0
     }
 
     /// Check if device has active output channels (not just streams that report existence)
@@ -433,32 +385,5 @@ class DeviceDiscovery {
         }
 
         return (true, nil)
-    }
-
-    /// Check if device supports hardware volume control via kAudioDevicePropertyVolumeScalar.
-    /// Checks master (element 0) and channel-level (elements 1, 2) on output scope.
-    /// Returns true if at least one element supports volume control.
-    private func deviceHasVolumeControl(_ deviceID: AudioDeviceID) -> Bool {
-        let elements: [UInt32] = [
-            kAudioObjectPropertyElementMain,  // element 0 (master)
-            1,                                 // element 1 (left channel)
-            2                                  // element 2 (right channel)
-        ]
-
-        for element in elements {
-            var address = AudioObjectPropertyAddress(
-                mSelector: kAudioDevicePropertyVolumeScalar,
-                mScope: kAudioDevicePropertyScopeOutput,
-                mElement: element
-            )
-            var settable = DarwinBoolean(false)
-            if AudioObjectHasProperty(deviceID, &address),
-               AudioObjectIsPropertySettable(deviceID, &address, &settable) == noErr,
-               settable.boolValue {
-                return true
-            }
-        }
-
-        return false
     }
 }

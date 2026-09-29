@@ -1,4 +1,5 @@
 import Foundation
+import MoniVolCore
 
 enum PathManagerError: Error {
     case directoryCreationFailed(String)
@@ -12,7 +13,7 @@ struct PathManager {
         let url = fileManager.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
-        ).first!.appendingPathComponent("MoniVol")
+        ).first!.appendingPathComponent(MonivolPaths.appSupportFolder)
         return url
     }()
 
@@ -30,7 +31,7 @@ struct PathManager {
     }
 
     static var controlFilePath: String {
-        return "/tmp/monivol-devices.txt"
+        return MonivolPaths.controlFile
     }
 
     static func logFilePath(name: String) -> URL {

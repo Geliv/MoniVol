@@ -5,6 +5,7 @@ import AppKit
 import CoreText
 import CoreGraphics
 import CoreAudio
+import MoniVolCore
 
 // Main entry point - AppKit-based app with SwiftUI views
 @main
@@ -369,7 +370,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Clean up temporary files that keep proxies alive.
     private func cleanupTempIPC(logger: (String) -> Void) {
         let fm = FileManager.default
-        let controlFile = "/tmp/monivol-devices.txt"
+        let controlFile = MonivolPaths.controlFile
         if fm.fileExists(atPath: controlFile) {
             logger("Removing control file \(controlFile)")
             unlink(controlFile)
@@ -414,41 +415,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             &currentDeviceID
         ) == noErr {
             // Get current device name
-            var nameAddress = AudioObjectPropertyAddress(
-                mSelector: kAudioDevicePropertyDeviceNameCFString,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: kAudioObjectPropertyElementMain
-            )
-
-            var deviceName: Unmanaged<CFString>?
-            var nameSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-
-            let nameStatus = withUnsafeMutablePointer(to: &deviceName) { ptr in
-                AudioObjectGetPropertyData(currentDeviceID, &nameAddress, 0, nil, &nameSize, ptr)
-            }
-            if nameStatus == noErr, let name = deviceName?.takeUnretainedValue() as String? {
+            if let name = DeviceQuery.name(currentDeviceID) {
 
                 // If currently on a MoniVol proxy, switch back to physical device
-                if name.contains("MoniVol") {
+                if name.contains(ProxyNaming.nameMarker) {
                     logger("[Cleanup] Currently on proxy device: \(name)")
 
                     // Get proxy UID
-                    var uidAddress = AudioObjectPropertyAddress(
-                        mSelector: kAudioDevicePropertyDeviceUID,
-                        mScope: kAudioObjectPropertyScopeGlobal,
-                        mElement: kAudioObjectPropertyElementMain
-                    )
-
-                    var deviceUID: Unmanaged<CFString>?
-                    var uidSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-
-                    let uidStatus = withUnsafeMutablePointer(to: &deviceUID) { ptr in
-                        AudioObjectGetPropertyData(currentDeviceID, &uidAddress, 0, nil, &uidSize, ptr)
-                    }
-                    if uidStatus == noErr, let proxyUIDStr = deviceUID?.takeUnretainedValue() as String? {
+                    if let proxyUIDStr = DeviceQuery.uid(currentDeviceID) {
 
                         // Extract physical device UID (remove "-monivol" suffix)
-                        if let physicalUID = proxyUIDStr.components(separatedBy: "-monivol").first {
+                        if let physicalUID = ProxyNaming.physicalUID(from: proxyUIDStr) {
                             logger("[Cleanup] Looking for physical device with UID: \(physicalUID)")
 
                             // Find the physical device
@@ -499,7 +476,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // 2. Remove control file - driver will detect and remove proxies
-        let controlFilePath = "/tmp/monivol-devices.txt"
+        let controlFilePath = MonivolPaths.controlFile
         logger("[Cleanup] Removing control file: \(controlFilePath)")
         unlink(controlFilePath)
 
@@ -511,59 +488,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func findDeviceByUID(_ targetUID: String) -> AudioDeviceID? {
-        var propertyAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDevices,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-
-        var dataSize: UInt32 = 0
-        guard AudioObjectGetPropertyDataSize(
-            AudioObjectID(kAudioObjectSystemObject),
-            &propertyAddress,
-            0,
-            nil,
-            &dataSize
-        ) == noErr else {
-            return nil
-        }
-
-        let deviceCount = Int(dataSize) / MemoryLayout<AudioDeviceID>.size
-        var deviceIDs = [AudioDeviceID](repeating: 0, count: deviceCount)
-
-        guard AudioObjectGetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject),
-            &propertyAddress,
-            0,
-            nil,
-            &dataSize,
-            &deviceIDs
-        ) == noErr else {
-            return nil
-        }
-
-        // Find device with matching UID
-        for deviceID in deviceIDs {
-            var uidAddress = AudioObjectPropertyAddress(
-                mSelector: kAudioDevicePropertyDeviceUID,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: kAudioObjectPropertyElementMain
-            )
-
-            var deviceUID: Unmanaged<CFString>?
-            var uidSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-
-            let uidStatus = withUnsafeMutablePointer(to: &deviceUID) { ptr in
-                AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &uidSize, ptr)
-            }
-            if uidStatus == noErr, let uid = deviceUID?.takeUnretainedValue() as String? {
-                if uid == targetUID {
-                    return deviceID
-                }
-            }
-        }
-
-        return nil
+        DeviceQuery.findDeviceID(byUID: targetUID)
     }
 
     func checkAndLoadDriverIfNeeded() {

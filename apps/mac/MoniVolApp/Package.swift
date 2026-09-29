@@ -50,12 +50,14 @@ let package = Package(
         )
     ],
     dependencies: [
+        .package(path: "../../../packages/core"),
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0")
     ],
     targets: [
         .executableTarget(
             name: "MoniVolApp",
             dependencies: [
+                .product(name: "MoniVolCore", package: "core"),
                 .product(name: "Sparkle", package: "Sparkle")
             ],
             path: "Sources",

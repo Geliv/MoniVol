@@ -3,6 +3,7 @@ import CMoniVolAudio
 import CoreAudio
 import Darwin
 import Foundation
+import MoniVolCore
 import os.log
 
 // Darwin notify API — not always visible during x86_64 cross-compilation.
@@ -180,7 +181,7 @@ func main() {
     // Listen for bounce requests from App via Darwin notification
     var bounceToken: Int32 = 0
     let bounceStatus = _notify_register_dispatch(
-        "com.monivol.bounce-request",
+        MonivolNotifications.bounceRequest,
         &bounceToken,
         DispatchQueue.global(qos: .userInitiated)
     ) { _ in

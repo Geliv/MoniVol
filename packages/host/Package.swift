@@ -8,6 +8,9 @@ let package = Package(
     platforms: [
         .macOS(.v13)
     ],
+    dependencies: [
+        .package(path: "../core")
+    ],
     targets: [
         .target(
             name: "CMoniVolAudio",
@@ -16,7 +19,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "MoniVolHost",
-            dependencies: ["CMoniVolAudio"],
+            dependencies: ["CMoniVolAudio", .product(name: "MoniVolCore", package: "core")],
             linkerSettings: [
                 .linkedFramework("CoreAudio"),
                 .linkedFramework("AudioToolbox"),

@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import MoniVolCore
 
 // Darwin notify API — not always visible during x86_64 cross-compilation.
 @_silgen_name("notify_register_dispatch")
@@ -68,7 +69,7 @@ class IPCController {
 
         // Register Darwin notification listener (primary notification mechanism)
         let status = _notify_register_dispatch(
-            "com.monivol.device-state-changed",
+            MonivolNotifications.deviceStateChanged,
             &darwinNotifyToken,
             DispatchQueue.main
         ) { [weak self] _ in

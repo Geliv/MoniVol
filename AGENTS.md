@@ -4,6 +4,7 @@
 
 - `apps/mac/MoniVolApp/`：Swift 菜单栏应用、界面、驱动安装与 Sparkle 应用更新。
 - `packages/host/`：Swift 音频 Host，负责设备发现、代理切换、共享内存和向真实显示器播放音频。
+- `packages/core/`：App 与 Host 共享的 Swift 库 `MoniVolCore`，集中 CoreAudio 设备属性查询、代理设备命名规则（`-monivol` 后缀）和跨进程通知/路径常量。音量能力判断唯一标准是 `DeviceQuery.hasWritableVolumeControl`（属性存在且可写）。
 - `packages/driver/`：基于 `vendor/libASPL` 子模块的 CoreAudio HAL 虚拟驱动。
 - `tools/`：构建、打包、签名和驱动管理脚本。面向用户的安装与构建说明见 `README.md`；README 的更新说明只写用户操作，不写更新框架与发布配置。
 
@@ -23,6 +24,7 @@
 - 用物理设备 UID 保存显示器选择与音量状态；`AudioDeviceID` 只在当前设备枚举中有效。断开时移除代理并切回内建输出，重连同一 UID 后等待代理出现再恢复输出。
 - Host 启动和新增设备时，先建立共享内存，再发布驱动控制文件。保持控制文件原子写入，避免无变化的设备通知重复发布；延迟清理共享内存前复查设备是否已重新连接。
 - 修改共享内存协议时同步检查两份 `RFSharedAudio.h`：`packages/driver/include/`、`packages/host/Sources/CMoniVolAudio/include/`。
+- 驱动是 C++，无法引用 `MoniVolCore`；`-monivol` UID 后缀、`/tmp/monivol-devices.txt` 控制文件路径和 Darwin 通知名在 `Plugin.cpp` 中是字面量，改动 `packages/core` 对应常量时必须人工同步驱动端。
 - 驱动代码更新后，旧的已安装 HAL 驱动不会随 App 源码变化自动替换；运行时验证需确认安装的驱动版本，并在替换后重启 `coreaudiod`。
 - 控制中心漏列设备时，先核对 CoreAudio 和系统设置中的实际设备状态。重启 `ControlCenter` 可以刷新界面，但不能据此认定根因已经修复。
 

@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import os.log
+import MoniVolCore
 
 // notify_post is available via <notify.h> but not always visible in cross-compilation.
 @_silgen_name("notify_post")
@@ -41,7 +42,7 @@ class DeviceRegistry {
         do {
             // 原子替换，避免驱动轮询时读到短暂不存在的控制文件。
             try content.write(toFile: filePath, atomically: true, encoding: .utf8)
-            _ = _notify_post("com.monivol.devices-changed")
+            _ = _notify_post(MonivolNotifications.devicesChanged)
         } catch {
             logger.error("Failed to write control file: \(error.localizedDescription)")
         }
@@ -76,7 +77,7 @@ class DeviceRegistry {
                 try fm.removeItem(at: fileURL)
             }
             try fm.moveItem(at: tmpURL, to: fileURL)
-            _ = _notify_post("com.monivol.device-state-changed")
+            _ = _notify_post(MonivolNotifications.deviceStateChanged)
             logger.info("Wrote device-state.json (\(self.devices.count) devices)")
         } catch {
             logger.error("Failed to write device-state.json: \(error.localizedDescription)")

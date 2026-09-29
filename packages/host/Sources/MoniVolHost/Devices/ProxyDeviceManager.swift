@@ -1,6 +1,7 @@
 import Foundation
 import CoreAudio
 import os.log
+import MoniVolCore
 
 private let logger = Logger(subsystem: "com.monivol.host", category: "ProxyDeviceManager")
 
@@ -68,7 +69,7 @@ class ProxyDeviceManager {
     }
 
     func findProxyDevice(forPhysicalUID physicalUID: String) -> AudioDeviceID? {
-        let proxyUID = physicalUID + "-monivol"
+        let proxyUID = ProxyNaming.proxyUID(for: physicalUID)
 
         var propertyAddress = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDevices,
@@ -102,7 +103,7 @@ class ProxyDeviceManager {
         }
 
         for deviceID in deviceIDs {
-            if let uid = getDeviceUID(deviceID), uid == proxyUID {
+            if let uid = DeviceQuery.uid(deviceID), uid == proxyUID {
                 return deviceID
             }
         }
@@ -209,17 +210,17 @@ class ProxyDeviceManager {
             return
         }
 
-        guard let uid = getDeviceUID(currentDeviceID),
-              let name = getDeviceName(currentDeviceID) else {
+        guard let uid = DeviceQuery.uid(currentDeviceID),
+              let name = DeviceQuery.name(currentDeviceID) else {
             logger.error("Could not get device info")
             return
         }
 
         print("[AutoSelect] Current default device: \(name) (\(uid))")
 
-        if uid.hasSuffix("-monivol") {
+        if ProxyNaming.isProxyUID(uid) {
             // If we're already on a proxy, make sure we map it to the physical device.
-            let physicalUID = String(uid.dropLast("-monivol".count))
+            let physicalUID = ProxyNaming.physicalUID(from: uid) ?? uid
             if let physicalDevice = registry.find(uid: physicalUID) {
                 rememberDisplay(physicalUID)
                 activeProxyUID = physicalUID
@@ -281,12 +282,12 @@ class ProxyDeviceManager {
     /// If current output is a proxy, this also updates activeProxy* state.
     func resolveCurrentOutputDevice(in devices: [PhysicalDevice]) -> PhysicalDevice? {
         guard let currentDeviceID = getCurrentDefaultDevice(),
-              let uid = getDeviceUID(currentDeviceID) else {
+              let uid = DeviceQuery.uid(currentDeviceID) else {
             return nil
         }
 
-        if uid.hasSuffix("-monivol") {
-            let physicalUID = String(uid.dropLast("-monivol".count))
+        if ProxyNaming.isProxyUID(uid) {
+            let physicalUID = ProxyNaming.physicalUID(from: uid) ?? uid
             if let physicalDevice = devices.first(where: { $0.uid == physicalUID }) {
                 activeProxyUID = physicalUID
                 activePhysicalDeviceID = physicalDevice.id
@@ -300,8 +301,8 @@ class ProxyDeviceManager {
     }
 
     func handleProxySelection(_ proxyUID: String, deviceID: AudioDeviceID) {
-        if proxyUID.hasSuffix("-monivol"),
-           let physicalDevice = registry.find(uid: String(proxyUID.dropLast("-monivol".count))) {
+        if let physicalUID = ProxyNaming.physicalUID(from: proxyUID),
+           let physicalDevice = registry.find(uid: physicalUID) {
             let physicalUID = physicalDevice.uid
             rememberDisplay(physicalUID)
             print("Routing to: \(physicalDevice.name)")
@@ -364,13 +365,13 @@ class ProxyDeviceManager {
         stopVolumeForwarding()
 
         guard let currentDeviceID = getCurrentDefaultDevice(),
-              let name = getDeviceName(currentDeviceID),
-              name.contains("MoniVol") else {
+              let name = DeviceQuery.name(currentDeviceID),
+              name.contains(ProxyNaming.nameMarker) else {
             return false
         }
 
-        guard let proxyUID = getDeviceUID(currentDeviceID),
-              let physicalUID = proxyUID.components(separatedBy: "-monivol").first,
+        guard let proxyUID = DeviceQuery.uid(currentDeviceID),
+              let physicalUID = ProxyNaming.physicalUID(from: proxyUID),
               let physicalDevice = registry.find(uid: physicalUID) else {
             return false
         }
@@ -405,44 +406,6 @@ class ProxyDeviceManager {
         }
 
         return deviceID
-    }
-
-    private func getDeviceUID(_ deviceID: AudioDeviceID) -> String? {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyDeviceUID,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-
-        var uid: Unmanaged<CFString>?
-        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-
-        let status = withUnsafeMutablePointer(to: &uid) { ptr in
-            AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, ptr)
-        }
-        guard status == noErr, let cfUID = uid?.takeUnretainedValue() else {
-            return nil
-        }
-        return cfUID as String
-    }
-
-    private func getDeviceName(_ deviceID: AudioDeviceID) -> String? {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyDeviceNameCFString,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-
-        var name: Unmanaged<CFString>?
-        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-
-        let status = withUnsafeMutablePointer(to: &name) { ptr in
-            AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, ptr)
-        }
-        guard status == noErr, let cfName = name?.takeUnretainedValue() else {
-            return nil
-        }
-        return cfName as String
     }
 
     private func getDeviceVolume(_ deviceID: AudioDeviceID) -> Float32? {

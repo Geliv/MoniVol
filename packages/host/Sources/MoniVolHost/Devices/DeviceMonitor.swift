@@ -1,6 +1,7 @@
 import Foundation
 import CoreAudio
 import os.log
+import MoniVolCore
 
 private let logger = Logger(subsystem: "com.monivol.host", category: "DeviceMonitor")
 
@@ -226,14 +227,14 @@ class DeviceMonitor {
         lastHandledDeviceID = deviceID
         lastHandledTime = now
 
-        guard let name = getDeviceName(deviceID),
-              let uid = getDeviceUID(deviceID) else {
+        guard let name = DeviceQuery.name(deviceID),
+              let uid = DeviceQuery.uid(deviceID) else {
             return
         }
 
         print("Default output changed: \(name)")
 
-        if uid.hasSuffix("-monivol") {
+        if ProxyNaming.isProxyUID(uid) {
             proxyManager.handleProxySelection(uid, deviceID: deviceID)
 
             let targetID = proxyManager.activePhysicalDeviceID
@@ -297,44 +298,6 @@ class DeviceMonitor {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             self?.waitForProxyAndSwitch(device, deadline: deadline)
         }
-    }
-
-    private func getDeviceName(_ deviceID: AudioDeviceID) -> String? {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyDeviceNameCFString,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-
-        var name: Unmanaged<CFString>?
-        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-
-        let status = withUnsafeMutablePointer(to: &name) { ptr in
-            AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, ptr)
-        }
-        guard status == noErr, let cfName = name?.takeUnretainedValue() else {
-            return nil
-        }
-        return cfName as String
-    }
-
-    private func getDeviceUID(_ deviceID: AudioDeviceID) -> String? {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyDeviceUID,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-
-        var name: Unmanaged<CFString>?
-        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-
-        let status = withUnsafeMutablePointer(to: &name) { ptr in
-            AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, ptr)
-        }
-        guard status == noErr, let cfName = name?.takeUnretainedValue() else {
-            return nil
-        }
-        return cfName as String
     }
 }
 
