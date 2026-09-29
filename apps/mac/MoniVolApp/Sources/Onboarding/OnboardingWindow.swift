@@ -1,11 +1,11 @@
 import AppKit
 import SwiftUI
 
-/// Custom borderless NSWindow for onboarding flow with vintage paper background
+/// Window hosting the single-page onboarding flow.
 class OnboardingWindow: NSWindow {
     init(coordinator: OnboardingCoordinator) {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 440),
+            contentRect: NSRect(x: 0, y: 0, width: 680, height: 520),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -29,12 +29,12 @@ class OnboardingWindow: NSWindow {
         self.level = .floating
     }
 
-    // Allow the borderless window to become key window (receive keyboard input)
+    // Allow the onboarding window to become key window (receive keyboard input)
     override var canBecomeKey: Bool {
         return true
     }
 
-    // Allow the borderless window to become main window
+    // Allow the onboarding window to become main window
     override var canBecomeMain: Bool {
         return true
     }

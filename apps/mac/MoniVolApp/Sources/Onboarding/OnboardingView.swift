@@ -1,157 +1,28 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 
-// MARK: - Onboarding Step
-
-/// The two steps in the simplified onboarding flow
-enum OnboardingStep {
-    case welcome
-    case driverInstall
-}
-
-// MARK: - OnboardingView
-
-/// Simplified two-step onboarding: Welcome → Driver Installation
+/// Single-page setup flow for installing the audio driver and opening MoniVol.
 struct OnboardingView: View {
     @ObservedObject var coordinator: OnboardingCoordinator
-    @State private var currentStep: OnboardingStep = .welcome
-
-    var body: some View {
-        ZStack {
-            Color(NSColor.windowBackgroundColor)
-                .ignoresSafeArea()
-
-            switch currentStep {
-            case .welcome:
-                WelcomeStepView(onNext: {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        currentStep = .driverInstall
-                    }
-                })
-            case .driverInstall:
-                DriverInstallStepView(
-                    onBack: {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            currentStep = .welcome
-                        }
-                    },
-                    onComplete: {
-                        coordinator.complete()
-                    }
-                )
-            }
-        }
-        .frame(minWidth: 520, minHeight: 400)
-    }
-}
-
-// MARK: - Step 1: Welcome
-
-/// Welcome page introducing MoniVol and its core functionality
-private struct WelcomeStepView: View {
-    let onNext: () -> Void
-
-    var body: some View {
-        VStack(spacing: 32) {
-            Spacer()
-
-            // App icon / brand
-            AppIconView(size: 64)
-
-            VStack(spacing: 12) {
-                Text("Welcome to MoniVol")
-                    .font(.system(size: 28, weight: .bold))
-
-                Text("MoniVol lets you control HDMI monitor volume with your keyboard volume keys")
-                    .font(.system(size: 15))
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 380)
-            }
-
-            Spacer()
-
-            Button(action: onNext) {
-                Text("Next")
-                    .font(.system(size: 14, weight: .medium))
-                    .frame(width: 120)
-            }
-            .keyboardShortcut(.return)
-            .controlSize(.large)
-            .buttonStyle(.borderedProminent)
-            .padding(.bottom, 40)
-        }
-        .padding(.horizontal, 40)
-    }
-}
-
-// MARK: - Step 2: Driver Installation
-
-/// Driver installation page with progress and completion state
-private struct DriverInstallStepView: View {
-    let onBack: () -> Void
-    let onComplete: () -> Void
-
     @StateObject private var installer = DriverInstaller()
 
     var body: some View {
-        VStack(spacing: 24) {
-            Spacer()
+        ZStack {
+            Color(nsColor: .windowBackgroundColor)
+                .ignoresSafeArea()
 
-            if installer.state.isComplete {
-                completionContent
-            } else {
-                installContent
-            }
+            RadialGradient(
+                colors: [Color.accentColor.opacity(0.10), .clear],
+                center: UnitPoint(x: 0.5, y: 0.08),
+                startRadius: 12,
+                endRadius: 280
+            )
+            .ignoresSafeArea()
 
-            Spacer()
-
-            // Bottom buttons
-            HStack {
-                if !installer.state.isComplete {
-                    Button("Back") {
-                        onBack()
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundColor(.secondary)
-                }
-
-                Spacer()
-
-                if installer.state.isComplete {
-                    Button(action: onComplete) {
-                        Text("Open MoniVol")
-                            .font(.system(size: 14, weight: .medium))
-                            .frame(width: 160)
-                    }
-                    .keyboardShortcut(.return)
-                    .controlSize(.large)
-                    .buttonStyle(.borderedProminent)
-                } else if installer.state == .notStarted {
-                    Button(action: installDriver) {
-                        Text("Install Driver")
-                            .font(.system(size: 14, weight: .medium))
-                            .frame(width: 120)
-                    }
-                    .keyboardShortcut(.return)
-                    .controlSize(.large)
-                    .buttonStyle(.borderedProminent)
-                } else if installer.state.isFailed {
-                    Button(action: installDriver) {
-                        Text("Retry")
-                            .font(.system(size: 14, weight: .medium))
-                            .frame(width: 120)
-                    }
-                    .keyboardShortcut(.return)
-                    .controlSize(.large)
-                    .buttonStyle(.borderedProminent)
-                }
-            }
-            .padding(.bottom, 40)
+            setupContent
         }
-        .padding(.horizontal, 40)
+        .frame(width: 680, height: 520)
         .onAppear {
-            // If driver is already installed, skip to completion
             if installer.isDriverInstalled() {
                 installer.state = .complete
                 installer.progress = 1.0
@@ -159,79 +30,192 @@ private struct DriverInstallStepView: View {
         }
     }
 
-    // MARK: - Install Content
+    private var setupContent: some View {
+        VStack(spacing: 24) {
+            VStack(spacing: 10) {
+                AppIconView(size: 88)
 
-    @ViewBuilder
-    private var installContent: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "gearshape.2.fill")
-                .font(.system(size: 40))
-                .foregroundColor(.accentColor)
+                Text("Set up MoniVol")
+                    .font(.system(size: 32, weight: .bold))
 
-            Text("Install Audio Driver")
-                .font(.system(size: 22, weight: .semibold))
+                Text("MoniVol lets you control your external monitor volume\nwith your keyboard volume keys.")
+                    .font(.system(size: 16))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(2)
+            }
 
-            Text("An audio driver is required to enable volume control. This requires an administrator password.")
-                .font(.system(size: 14))
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 360)
+            VStack(spacing: 0) {
+                setupStep(
+                    number: 1,
+                    icon: "gearshape.fill",
+                    title: installer.state.isComplete ? "Audio Driver Installed" : "Install Audio Driver",
+                    detail: driverStepDetail,
+                    isActive: !installer.state.isComplete,
+                    isComplete: installer.state.isComplete
+                )
 
-            if installer.state != .notStarted {
-                VStack(spacing: 8) {
-                    ProgressView(value: installer.progress)
-                        .frame(width: 300)
+                Rectangle()
+                    .fill(Color(nsColor: .separatorColor).opacity(0.55))
+                    .frame(height: 1)
+                    .padding(.leading, 94)
 
-                    Text(installer.state.description)
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
+                setupStep(
+                    number: 2,
+                    icon: "speaker.wave.2.fill",
+                    title: "Select MoniVol in Sound Settings",
+                    detail: "Open System Settings → Sound and select the\nMoniVol device to get started.",
+                    isActive: installer.state.isComplete,
+                    isComplete: false
+                )
+            }
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.86))
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
+            }
+
+            Spacer(minLength: 0)
+
+            actions
+        }
+        .padding(.top, 24)
+        .padding(.horizontal, 48)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func setupStep(
+        number: Int,
+        icon: String,
+        title: String,
+        detail: String,
+        isActive: Bool,
+        isComplete: Bool
+    ) -> some View {
+        HStack(spacing: 18) {
+            ZStack {
+                Circle()
+                    .fill(stepIndicatorColor(isActive: isActive, isComplete: isComplete))
+
+                if isComplete {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(.white)
+                } else {
+                    Text("\(number)")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(isActive ? .white : .secondary)
                 }
-                .padding(.top, 8)
             }
+            .frame(width: 38, height: 38)
+
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(isActive ? Color.accentColor.opacity(0.10) : Color.secondary.opacity(0.08))
+
+                Image(systemName: icon)
+                    .font(.system(size: 24, weight: .medium))
+                    .foregroundColor(isComplete ? .green : (isActive ? .accentColor : .secondary))
+            }
+            .frame(width: 54, height: 54)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(.primary)
+
+                Text(detail)
+                    .font(.system(size: 13.5))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if isInstalling && number == 1 {
+                    ProgressView(value: installer.progress)
+                        .progressViewStyle(.linear)
+                        .frame(maxWidth: 260)
+                        .padding(.top, 3)
+                }
+            }
+
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
+        .background(isActive ? Color.accentColor.opacity(0.055) : .clear)
     }
 
-    // MARK: - Completion Content
+    private var actions: some View {
+        HStack {
+            if !installer.state.isComplete {
+                Button("Skip for now") {
+                    coordinator.complete()
+                }
+                .controlSize(.large)
+            }
+
+            Spacer()
+
+            primaryButton
+        }
+    }
 
     @ViewBuilder
-    private var completionContent: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 48))
-                .foregroundColor(.green)
-
-            Text("Installation Complete")
-                .font(.system(size: 22, weight: .semibold))
-
-            Text("Select the MoniVol device in System Settings → Sound to get started")
-                .font(.system(size: 14))
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 380)
-
-            // Visual hint for Control Center → Sound
-            HStack(spacing: 6) {
-                Image(systemName: "switch.2")
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary)
-                Text("Control Center")
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary.opacity(0.6))
-                Image(systemName: "speaker.wave.3.fill")
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary)
-                Text("Sound")
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary)
+    private var primaryButton: some View {
+        if installer.state.isComplete {
+            Button("Open MoniVol") {
+                coordinator.complete()
             }
-            .padding(.top, 4)
+            .keyboardShortcut(.return)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .frame(minWidth: 150)
+        } else if installer.state.isFailed {
+            Button("Retry", action: installDriver)
+                .keyboardShortcut(.return)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .frame(minWidth: 150)
+        } else {
+            Button(isInstalling ? "Installing…" : "Install Driver", action: installDriver)
+                .keyboardShortcut(.return)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .frame(minWidth: 150)
+                .disabled(isInstalling)
         }
     }
 
-    // MARK: - Actions
+    private var isInstalling: Bool {
+        installer.state != .notStarted
+            && !installer.state.isComplete
+            && !installer.state.isFailed
+    }
+
+    private var driverStepDetail: String {
+        switch installer.state {
+        case .notStarted:
+            return "An audio driver is required to enable volume control.\nThis requires an administrator password."
+        case .complete:
+            return "The audio driver is installed and ready."
+        case .failed(let message):
+            return "Installation failed: \(message)"
+        default:
+            return installer.state.description
+        }
+    }
+
+    private func stepIndicatorColor(isActive: Bool, isComplete: Bool) -> Color {
+        if isComplete {
+            return .green
+        }
+        if isActive {
+            return .accentColor
+        }
+        return Color.secondary.opacity(0.14)
+    }
 
     private func installDriver() {
         Task {
