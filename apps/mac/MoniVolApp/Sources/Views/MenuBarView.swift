@@ -695,8 +695,7 @@ private struct UninstallButton: View {
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
 
-        // Tell AppDelegate we're uninstalling so Host's terminationHandler
-        // won't call NSApp.terminate prematurely.
+        // Tell AppDelegate we're uninstalling so the Host watchdog stays idle.
         if let appDelegate = NSApp.delegate as? AppDelegate {
             appDelegate.isUninstalling = true
         }

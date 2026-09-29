@@ -63,6 +63,9 @@ constexpr UInt32 DEFAULT_RING_DURATION_MS = RF_RING_DURATION_MS_DEFAULT;
 constexpr UInt32 HAL_ZERO_TIMESTAMP_PERIOD_FRAMES = 16384;
 constexpr UInt32 HAL_SAFETY_OFFSET_FRAMES = 128;
 constexpr UInt32 HAL_PRESENTATION_LATENCY_FRAMES = 512;
+constexpr uint32_t MAX_CALLBACK_FRAMES = 4096;
+constexpr uint32_t MAX_RESAMPLED_FRAMES =
+    (MAX_CALLBACK_FRAMES * 192000U + 44100U - 1U) / 44100U + 16U;
 static_assert(HAL_ZERO_TIMESTAMP_PERIOD_FRAMES >= 10923,
     "ZeroTimeStampPeriod must satisfy CoreAudio minimum (10923 frames)");
 constexpr int ADAPTIVE_FILL_TARGET_DIVISOR = 2;     // Keep ring near 50% full
@@ -72,7 +75,6 @@ constexpr double ADAPTIVE_MAX_ADJUST_PPM = 1500.0;  // +/-0.15% drift correction
 // Health and heartbeat timing constants.
 constexpr int HEALTH_CHECK_INTERVAL_SEC = 3;
 constexpr int HEARTBEAT_INTERVAL_SEC = 1;
-constexpr int STATS_LOG_INTERVAL_SEC = 30;
 constexpr int HEARTBEAT_TIMEOUT_SEC = 15;
 
 // Device states
@@ -171,21 +173,6 @@ struct AudioStats {
     std::atomic<uint64_t> client_starts{0};
     std::atomic<uint64_t> client_stops{0};
 
-    void LogPeriodic() {
-        static auto last_log = std::chrono::steady_clock::now();
-        auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_log).count();
-
-        if (elapsed >= STATS_LOG_INTERVAL_SEC) {
-            RF_LOG_INFO("╔══════════════ STATS (%llds) ══════════════╗", elapsed);
-            RF_LOG_INFO("║ Writes: %llu (failed: %llu)              ", total_writes.load(), failed_writes.load());
-            RF_LOG_INFO("║ Clients: starts=%llu stops=%llu          ", client_starts.load(), client_stops.load());
-            RF_LOG_INFO("║ Health: failures=%llu reconnects=%llu    ", health_failures.load(), reconnections.load());
-            RF_LOG_INFO("║ Format: changes=%llu SRC=%llu            ", format_changes.load(), sample_rate_conversions.load());
-            RF_LOG_INFO("╚══════════════════════════════════════════╝");
-            last_log = now;
-        }
-    }
 };
 
 // Custom VolumeControl that syncs to shared memory when volume changes.
@@ -427,7 +414,7 @@ public:
                         state_ = DeviceState::Connected;
 
                         // Pre-allocate conversion buffers
-                        ResizeBuffers();
+                        PrepareRealtimeBuffers();
 
                         // Prebuffer half a ring of silence so the host render callback always has
                         // data to consume before Safari delivers its first real audio buffer.
@@ -548,21 +535,26 @@ public:
             return;
         }
 
+        if (frameCount > MAX_CALLBACK_FRAMES ||
+            fmt.mChannelsPerFrame == 0 ||
+            fmt.mChannelsPerFrame > RF_MAX_CHANNELS ||
+            fmt.mSampleRate <= 0.0) {
+            stats_.failed_writes++;
+            return;
+        }
+
         // Check if format change is needed
         if (fmt.mSampleRate != current_sample_rate_ ||
             fmt.mChannelsPerFrame != current_channels_) {
 
-            RF_LOG_INFO("Format change: %.0fHz %uch -> %uHz %uch",
-                fmt.mSampleRate, fmt.mChannelsPerFrame,
-                current_sample_rate_, current_channels_);
-
             HandleFormatChange(fmt);
         }
 
-        // Ensure pre-allocated buffer is large enough
+        // Reject unexpected callback sizes instead of allocating on the IO thread.
         size_t needed = frameCount * fmt.mChannelsPerFrame;
         if (interleaved_buf_.size() < needed) {
-            interleaved_buf_.resize(needed);
+            stats_.failed_writes++;
+            return;
         }
 
         // Convert to interleaved float32 using pre-allocated buffer
@@ -603,8 +595,6 @@ public:
                 if (prepend_silence_frames > available_silence_frames) {
                     prepend_silence_frames = static_cast<uint32_t>(available_silence_frames);
                 }
-                const size_t silence_needed = prepend_silence_frames * fmt.mChannelsPerFrame;
-                std::fill_n(silence_buf_.begin(), silence_needed, 0.0f);
                 WriteWithAdaptiveDriftCompensation(silence_buf_.data(), prepend_silence_frames,
                                                    fmt.mSampleRate, fmt.mChannelsPerFrame);
             }
@@ -616,8 +606,6 @@ public:
                                                fmt.mSampleRate, fmt.mChannelsPerFrame);
             }
         }
-
-        stats_.LogPeriodic();
     }
 
     // Keep proxy volume controls for UI/events, but avoid applying proxy gain in-driver.
@@ -821,18 +809,14 @@ private:
         }
     }
 
-    void ResizeBuffers() {
+    void PrepareRealtimeBuffers() {
         if (!shared_memory_) return;
 
-        // Size for max expected callback: 4096 frames at 192kHz, 8 channels
-        uint32_t max_frames = 4096;
-        uint32_t max_channels = RF_MAX_CHANNELS;
-
-        interleaved_buf_.resize(max_frames * max_channels);
-        resampled_buf_.resize(max_frames * 2 * max_channels); // 2x for upsampling headroom
+        interleaved_buf_.resize(MAX_CALLBACK_FRAMES * RF_MAX_CHANNELS);
+        resampled_buf_.resize(MAX_RESAMPLED_FRAMES * RF_MAX_CHANNELS);
         const uint32_t max_silence_frames = std::max<uint32_t>(
             1, shared_memory_->ring_capacity_frames / 2);
-        silence_buf_.resize(max_silence_frames * max_channels, 0.0f);
+        silence_buf_.resize(max_silence_frames * RF_MAX_CHANNELS, 0.0f);
     }
 
     void HandleFormatChange(const AudioStreamBasicDescription& new_fmt) {
@@ -844,17 +828,16 @@ private:
         if (shared_memory_ && resampler_) {
             resampler_->SetChannels(new_fmt.mChannelsPerFrame);
             resampler_->SetRates(new_fmt.mSampleRate, shared_memory_->sample_rate);
-            RF_LOG_INFO("Configured resampler: %.0f -> %u Hz",
-                new_fmt.mSampleRate, shared_memory_->sample_rate);
         }
-
-        ResizeBuffers();
     }
 
     bool ConvertToFloat32Interleaved(const void* bytes, UInt32 frameCount,
                                      const AudioStreamBasicDescription& fmt,
                                      std::vector<float>& output) {
-        output.resize(frameCount * fmt.mChannelsPerFrame);
+        const size_t needed = frameCount * fmt.mChannelsPerFrame;
+        if (needed > output.size()) {
+            return false;
+        }
 
         if (fmt.mFormatFlags & kAudioFormatFlagIsFloat) {
             const float* input = static_cast<const float*>(bytes);
@@ -892,7 +875,6 @@ private:
                 return false;
             }
         } else {
-            RF_LOG_ERROR("Unsupported format flags: 0x%x", fmt.mFormatFlags);
             return false;
         }
 
@@ -909,11 +891,17 @@ private:
         stats_.sample_rate_conversions++;
 
         // Calculate output size and ensure buffer is large enough
-        uint32_t output_capacity =
-            static_cast<uint32_t>((input_frames * output_rate) / input_rate) + 10;
+        const double requested_frames =
+            (static_cast<double>(input_frames) * output_rate) / input_rate + 10.0;
+        if (requested_frames > MAX_RESAMPLED_FRAMES) {
+            stats_.failed_writes++;
+            return;
+        }
+        uint32_t output_capacity = static_cast<uint32_t>(requested_frames);
         size_t needed = output_capacity * channels;
-        if (resampled_buf_.size() < needed) {
-            resampled_buf_.resize(needed);
+        if (channels == 0 || resampled_buf_.size() < needed) {
+            stats_.failed_writes++;
+            return;
         }
 
         uint32_t output_frames = resampler_->Process(

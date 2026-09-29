@@ -22,6 +22,7 @@ class ProxyDeviceManager {
     let volumePersistence: VolumePersistence
     private let preferences = UserDefaults(suiteName: "com.monivol.host") ?? .standard
     private(set) var preferredDisplayUID: String?
+    var onActiveProxyChanged: ((String?) -> Void)?
 
     func rememberDisplay(_ uid: String) {
         preferredDisplayUID = uid
@@ -37,6 +38,7 @@ class ProxyDeviceManager {
         didSet {
             registry.activeDeviceUID = activeProxyUID
             registry.writeDeviceStateFile()
+            onActiveProxyChanged?(activeProxyUID)
         }
     }
     var activePhysicalDeviceID: AudioDeviceID = 0

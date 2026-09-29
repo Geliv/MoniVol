@@ -18,16 +18,14 @@ private func _notify_register_dispatch(
 private func _notify_cancel(_ token: Int32) -> UInt32
 
 private let logger = Logger(subsystem: "com.monivol.host", category: "Main")
+private var signalSources: [DispatchSourceSignal] = []
 
 let deviceDiscovery = DeviceDiscovery()
 let deviceRegistry = DeviceRegistry()
 let memoryManager = SharedMemoryManager()
 let volumePersistence = VolumePersistence()
 let proxyManager = ProxyDeviceManager(registry: deviceRegistry, volumePersistence: volumePersistence)
-let renderer = AudioRenderer(
-    memoryManager: memoryManager,
-    proxyManager: proxyManager
-)
+let renderer = AudioRenderer()
 let audioEngine = AudioEngine(renderer: renderer, registry: deviceRegistry)
 let deviceMonitor = DeviceMonitor(
     registry: deviceRegistry,
@@ -39,6 +37,19 @@ let deviceMonitor = DeviceMonitor(
 let sleepWakeMonitor = SleepWakeMonitor()
 
 func main() {
+    proxyManager.onActiveProxyChanged = { uid in
+        memoryManager.withMemory(for: uid) { memory in
+            renderer.setSharedMemory(memory)
+        }
+    }
+    memoryManager.onWillUnmap = { memory in
+        renderer.clearSharedMemory(memory)
+    }
+    memoryManager.onMemoryCreated = { uid, memory in
+        if proxyManager.activeProxyUID == uid {
+            renderer.setSharedMemory(memory)
+        }
+    }
 
     // Prevent macOS App Nap from throttling this process.
     // Without this, the system may suspend timers and background work
@@ -185,6 +196,9 @@ func main() {
 }
 
 func setupSignalHandlers() {
+    signal(SIGINT, SIG_IGN)
+    signal(SIGTERM, SIG_IGN)
+
     let sigintSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
     sigintSource.setEventHandler {
         print("\n[Signal] Received SIGINT (Ctrl+C)")
@@ -192,6 +206,7 @@ func setupSignalHandlers() {
         exit(0)
     }
     sigintSource.resume()
+    signalSources.append(sigintSource)
 
     let sigtermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
     sigtermSource.setEventHandler {
@@ -200,9 +215,7 @@ func setupSignalHandlers() {
         exit(0)
     }
     sigtermSource.resume()
-
-    signal(SIGINT, SIG_IGN)
-    signal(SIGTERM, SIG_IGN)
+    signalSources.append(sigtermSource)
 }
 
 func cleanup() {

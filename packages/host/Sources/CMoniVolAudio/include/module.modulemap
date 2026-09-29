@@ -1,5 +1,6 @@
 module CMoniVolAudio {
     header "RFSharedAudio.h"
     header "RFSharedMemoryWrapper.h"
+    header "RFRealtimeBridge.h"
     export *
 }

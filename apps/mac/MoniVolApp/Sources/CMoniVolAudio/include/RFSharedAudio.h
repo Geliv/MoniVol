@@ -265,20 +265,27 @@ static inline uint32_t rf_ring_write(
     const float* input_frames,  // Always float32 input
     uint32_t num_frames)
 {
-    uint64_t write_idx = atomic_load(&mem->write_index);
-    uint64_t read_idx = atomic_load(&mem->read_index);
+    uint64_t write_idx = atomic_load_explicit(&mem->write_index, memory_order_relaxed);
+    uint64_t read_idx = atomic_load_explicit(&mem->read_index, memory_order_acquire);
     uint32_t capacity = mem->ring_capacity_frames;
 
-    // Check for overflow - advance read_index to keep producer timeline intact
-    uint64_t used = write_idx - read_idx;
-    if (used + num_frames > capacity) {
-        uint32_t frames_to_drop = (uint32_t)((used + num_frames) - capacity);
-        atomic_store(&mem->read_index, read_idx + frames_to_drop);
+    if (capacity == 0 || mem->channels == 0 || num_frames == 0) {
+        return 0;
+    }
+
+    // This is a single-producer/single-consumer ring. Only the consumer may
+    // advance read_index; changing it here can race a read already in progress.
+    uint64_t used = write_idx >= read_idx ? write_idx - read_idx : capacity;
+    uint32_t available_frames = used < capacity ? (uint32_t)(capacity - used) : 0;
+    uint32_t frames_to_write = num_frames < available_frames
+        ? num_frames
+        : available_frames;
+    if (frames_to_write < num_frames) {
         atomic_fetch_add(&mem->overrun_count, 1);
     }
 
     // Write with format conversion
-    for (uint32_t frame = 0; frame < num_frames; frame++) {
+    for (uint32_t frame = 0; frame < frames_to_write; frame++) {
         uint32_t ring_pos = (uint32_t)((write_idx + frame) % capacity);
         uint8_t* dest = &mem->audio_data[ring_pos * mem->bytes_per_frame];
 
@@ -326,10 +333,13 @@ static inline uint32_t rf_ring_write(
         }
     }
 
-    atomic_store(&mem->write_index, write_idx + num_frames);
-    atomic_fetch_add(&mem->total_frames_written, num_frames);
+    atomic_store_explicit(
+        &mem->write_index,
+        write_idx + frames_to_write,
+        memory_order_release);
+    atomic_fetch_add(&mem->total_frames_written, frames_to_write);
 
-    return num_frames;
+    return frames_to_write;
 }
 
 /**
@@ -342,10 +352,11 @@ static inline uint32_t rf_ring_read(
     float* output_frames,  // Always float32 output
     uint32_t num_frames)
 {
-    uint64_t write_idx = atomic_load(&mem->write_index);
-    uint64_t read_idx = atomic_load(&mem->read_index);
+    uint64_t write_idx = atomic_load_explicit(&mem->write_index, memory_order_acquire);
+    uint64_t read_idx = atomic_load_explicit(&mem->read_index, memory_order_relaxed);
     uint32_t capacity = mem->ring_capacity_frames;
-    uint32_t available = (uint32_t)(write_idx - read_idx);
+    uint64_t used = write_idx >= read_idx ? write_idx - read_idx : 0;
+    uint32_t available = used < capacity ? (uint32_t)used : capacity;
 
     uint32_t frames_to_read = (available < num_frames) ? available : num_frames;
 
@@ -404,7 +415,10 @@ static inline uint32_t rf_ring_read(
         }
     }
 
-    atomic_store(&mem->read_index, read_idx + frames_to_read);
+    atomic_store_explicit(
+        &mem->read_index,
+        read_idx + frames_to_read,
+        memory_order_release);
     atomic_fetch_add(&mem->total_frames_read, frames_to_read);
 
     return num_frames;

@@ -15,8 +15,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var eventMonitor: EventMonitor?
     var onboardingCoordinator: OnboardingCoordinator?
     var driverUpdateWindow: DriverUpdateWindow?
-    /// Set to true during uninstall to suppress Host terminationHandler from
-    /// calling NSApp.terminate prematurely.
+    private var hostWatchdogTimer: DispatchSourceTimer?
+    private var isTerminating = false
+    /// Set to true during uninstall so the Host watchdog does not relaunch it.
     var isUninstalling = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -38,7 +39,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         checkDriverVersionMismatch()
 
         // Launch audio host if not already running
-        launchHostIfNeeded()
+        startHostWatchdog()
 
         // Start IPC monitoring for device state updates from Host
         IPCController.shared.onDeviceStateChanged = { _ in
@@ -164,7 +165,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         onboardingCoordinator = OnboardingCoordinator()
         onboardingCoordinator?.show(onComplete: { [weak self] in
             print("Onboarding completion callback called")
-            self?.launchHostIfNeeded()
+            self?.startHostWatchdog()
             self?.setupMenuBar()
             // Retry proxy binding after host has time to start
             DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 2.0) {
@@ -224,6 +225,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        isTerminating = true
+        hostWatchdogTimer?.cancel()
+        hostWatchdogTimer = nil
+
         // If uninstalling, driver and host are already gone — skip heavy cleanup
         if isUninstalling {
             print("=== applicationWillTerminate (uninstall mode, skipping cleanup) ===")
@@ -290,11 +295,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        logger("Attempting best-effort shutdown via pgrep/kill for any remaining hosts")
+        logger("Attempting best-effort shutdown of any remaining Host process")
 
         let pgrep = Process()
         pgrep.launchPath = "/usr/bin/pgrep"
-        pgrep.arguments = ["-f", "MoniVolHost"]
+        pgrep.arguments = ["-x", "MoniVolHost"]
 
         let pipe = Pipe()
         pgrep.standardOutput = pipe
@@ -612,15 +617,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func launchHostIfNeeded() {
-        // Check if MoniVolHost is already running
+        guard !isTerminating, !isUninstalling else { return }
+
+        if let process = hostProcess, process.isRunning {
+            return
+        }
+
+        // An existing Host may have survived an App restart. Match the exact
+        // process name so unrelated command lines containing "MoniVolHost"
+        // cannot suppress startup.
         let task = Process()
         task.launchPath = "/usr/bin/pgrep"
-        task.arguments = ["-f", "MoniVolHost"]
+        task.arguments = ["-x", "MoniVolHost"]
 
         let pipe = Pipe()
         task.standardOutput = pipe
-        task.launch()
-        task.waitUntilExit()
+        task.standardError = FileHandle.nullDevice
+
+        do {
+            try task.run()
+            task.waitUntilExit()
+        } catch {
+            print("Failed to check MoniVolHost status: \(error)")
+        }
 
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -632,6 +651,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             print("MoniVolHost already running (PID: \(output))")
         }
+    }
+
+    private func startHostWatchdog() {
+        guard hostWatchdogTimer == nil else { return }
+
+        launchHostIfNeeded()
+
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + 5.0, repeating: 5.0, leeway: .seconds(1))
+        timer.setEventHandler { [weak self] in
+            self?.launchHostIfNeeded()
+        }
+        hostWatchdogTimer = timer
+        timer.resume()
     }
 
     func startHost() {
@@ -719,30 +752,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        hostProcess = Process()
-        hostProcess?.launchPath = hostPath
-        hostProcess?.arguments = []
+        let process = Process()
+        process.launchPath = hostPath
+        process.arguments = []
 
-        // Capture output for debugging
-        let outputPipe = Pipe()
-        hostProcess?.standardOutput = outputPipe
-        hostProcess?.standardError = outputPipe
+        // The App has no consumer for helper stdout/stderr. Sending them to a
+        // pipe would eventually block a long-running Host once the pipe fills.
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
 
-        hostProcess?.terminationHandler = { [weak self] process in
+        process.terminationHandler = { [weak self] process in
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 print("MoniVolHost terminated (status: \(process.terminationStatus), reason: \(process.terminationReason.rawValue))")
-                // During uninstall, Host is killed intentionally — don't auto-quit
-                if !self.isUninstalling {
-                    NSApp.terminate(nil)
+                if self.hostProcess === process {
+                    self.hostProcess = nil
+                }
+                if !self.isTerminating && !self.isUninstalling {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                        self?.launchHostIfNeeded()
+                    }
                 }
             }
         }
 
         do {
-            try hostProcess?.run()
+            try process.run()
+            hostProcess = process
             print("Started MoniVolHost at: \(hostPath)")
         } catch {
+            hostProcess = nil
             print("Failed to launch host: \(error)")
             showAlert("Failed to Launch Host", error.localizedDescription)
         }

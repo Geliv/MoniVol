@@ -6,6 +6,8 @@ import os.log
 private let logger = Logger(subsystem: "com.monivol.host", category: "AudioEngine")
 
 class AudioEngine {
+    private static let maximumFramesPerSlice: UInt32 = 4096
+
     private let renderer: AudioRenderer
     private let registry: DeviceRegistry
     private var outputUnit: AudioUnit?
@@ -139,6 +141,7 @@ class AudioEngine {
         outputUnit = audioUnit
 
         try setOutputDevice(device.id)
+        try setMaximumFramesPerSlice()
         try setFormat()
         try setRenderCallback()
         try initialize()
@@ -319,6 +322,43 @@ class AudioEngine {
         }
     }
 
+    private func setMaximumFramesPerSlice() throws {
+        guard let unit = outputUnit else {
+            throw AudioEngineError.unitNotInitialized
+        }
+
+        var maximumFrames = Self.maximumFramesPerSlice
+        let setStatus = AudioUnitSetProperty(
+            unit,
+            kAudioUnitProperty_MaximumFramesPerSlice,
+            kAudioUnitScope_Global,
+            0,
+            &maximumFrames,
+            UInt32(MemoryLayout<UInt32>.size)
+        )
+        guard setStatus == noErr else {
+            throw AudioEngineError.setMaximumFramesFailed(setStatus)
+        }
+
+        var dataSize = UInt32(MemoryLayout<UInt32>.size)
+        let getStatus = AudioUnitGetProperty(
+            unit,
+            kAudioUnitProperty_MaximumFramesPerSlice,
+            kAudioUnitScope_Global,
+            0,
+            &maximumFrames,
+            &dataSize
+        )
+        guard getStatus == noErr, maximumFrames > 0 else {
+            throw AudioEngineError.setMaximumFramesFailed(getStatus)
+        }
+
+        renderer.prepare(
+            maxFrames: maximumFrames,
+            channelCount: MoniVolConfig.defaultChannels
+        )
+    }
+
     private func setRenderCallback() throws {
         guard let unit = outputUnit else {
             throw AudioEngineError.unitNotInitialized
@@ -364,6 +404,7 @@ enum AudioEngineError: Error, CustomStringConvertible {
     case unitNotInitialized
     case setDeviceFailed(OSStatus)
     case setFormatFailed(OSStatus)
+    case setMaximumFramesFailed(OSStatus)
     case setCallbackFailed(OSStatus)
     case initializationFailed(OSStatus)
     case startFailed(OSStatus)
@@ -384,6 +425,8 @@ enum AudioEngineError: Error, CustomStringConvertible {
             return "Failed to set output device (OSStatus: \(status))"
         case .setFormatFailed(let status):
             return "Failed to set stream format (OSStatus: \(status))"
+        case .setMaximumFramesFailed(let status):
+            return "Failed to configure maximum frames per slice (OSStatus: \(status))"
         case .setCallbackFailed(let status):
             return "Failed to set render callback (OSStatus: \(status))"
         case .initializationFailed(let status):

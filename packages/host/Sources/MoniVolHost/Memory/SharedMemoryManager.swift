@@ -6,6 +6,9 @@ import os.log
 private let logger = Logger(subsystem: "com.monivol.host", category: "SharedMemoryManager")
 
 class SharedMemoryManager {
+    var onMemoryCreated: ((String, UnsafeMutablePointer<RFSharedAudio>) -> Void)?
+    var onWillUnmap: ((UnsafeMutablePointer<RFSharedAudio>) -> Void)?
+
     private var deviceMemory: [String: UnsafeMutablePointer<RFSharedAudio>] = [:]
     private var heartbeatTimer: DispatchSourceTimer?
     private var lock = os_unfair_lock()
@@ -34,6 +37,9 @@ class SharedMemoryManager {
 
         let shmPath = PathManager.sharedMemoryPath(uid: uid)
         print("[MoniVolHost] File: \(shmPath)")
+
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
 
         unlink(shmPath)
 
@@ -83,9 +89,18 @@ class SharedMemoryManager {
             MoniVolConfig.defaultDurationMs
         )
 
-        os_unfair_lock_lock(&lock)
+        let previousMemory = deviceMemory[uid]
         deviceMemory[uid] = sharedMem
-        os_unfair_lock_unlock(&lock)
+        if let previousMemory, previousMemory != sharedMem {
+            onWillUnmap?(previousMemory)
+            let previousSize = rf_shared_audio_size(
+                previousMemory.pointee.ring_capacity_frames,
+                previousMemory.pointee.channels,
+                previousMemory.pointee.bytes_per_sample
+            )
+            munmap(previousMemory, previousSize)
+        }
+        onMemoryCreated?(uid, sharedMem)
 
         logger.info("Shared memory created successfully for \(uid)")
         print("[MoniVolHost]   Protocol: current")
@@ -98,13 +113,10 @@ class SharedMemoryManager {
 
     func removeMemory(for uid: String) {
         os_unfair_lock_lock(&lock)
-        let sharedMem = deviceMemory[uid]
-        if sharedMem != nil {
-            deviceMemory.removeValue(forKey: uid)
-        }
-        os_unfair_lock_unlock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
+        guard let sharedMem = deviceMemory.removeValue(forKey: uid) else { return }
 
-        guard let sharedMem = sharedMem else { return }
+        onWillUnmap?(sharedMem)
 
         let shmSize = rf_shared_audio_size(
             sharedMem.pointee.ring_capacity_frames,
@@ -118,18 +130,13 @@ class SharedMemoryManager {
         unlink(shmPath)
     }
 
-    func getMemory(for uid: String) -> UnsafeMutablePointer<RFSharedAudio>? {
+    func withMemory(
+        for uid: String?,
+        _ body: (UnsafeMutablePointer<RFSharedAudio>?) -> Void
+    ) {
         os_unfair_lock_lock(&lock)
-        let mem = deviceMemory[uid]
+        body(uid.flatMap { deviceMemory[$0] })
         os_unfair_lock_unlock(&lock)
-        return mem
-    }
-
-    func getFirstMemory() -> UnsafeMutablePointer<RFSharedAudio>? {
-        os_unfair_lock_lock(&lock)
-        let mem = deviceMemory.values.first
-        os_unfair_lock_unlock(&lock)
-        return mem
     }
 
     func startHeartbeat() {
@@ -141,30 +148,36 @@ class SharedMemoryManager {
 
         heartbeatTimer?.setEventHandler { [weak self] in
             guard let self = self else { return }
+            var warningMessages: [String] = []
             os_unfair_lock_lock(&self.lock)
-            let mems = Array(self.deviceMemory)
-            os_unfair_lock_unlock(&self.lock)
-            for (_, mem) in mems {
+            for (uid, mem) in self.deviceMemory {
                 rf_update_host_heartbeat(mem)
-            }
 
-            // Telemetry: log underrun/overrun deltas every 5 seconds (non-RT safe)
-            self.telemetryCounter += 1
-            if self.telemetryCounter % 5 == 0 {
-                for (uid, mem) in mems {
+                // Telemetry: collect underrun/overrun deltas every 5 seconds.
+                if (self.telemetryCounter + 1) % 5 == 0 {
                     let underruns = rf_get_underrun_count(mem)
                     let overruns = rf_get_overrun_count(mem)
                     let lastU = self.lastUnderrunCounts[uid] ?? 0
                     let lastO = self.lastOverrunCounts[uid] ?? 0
                     if underruns > lastU {
-                        logger.warning("⚠️ Buffer underrun: +\(underruns - lastU) (total: \(underruns)) [\(uid)]")
+                        warningMessages.append(
+                            "Buffer underrun: +\(underruns - lastU) (total: \(underruns)) [\(uid)]"
+                        )
                     }
                     if overruns > lastO {
-                        logger.warning("⚠️ Buffer overrun: +\(overruns - lastO) (total: \(overruns)) [\(uid)]")
+                        warningMessages.append(
+                            "Buffer overrun: +\(overruns - lastO) (total: \(overruns)) [\(uid)]"
+                        )
                     }
                     self.lastUnderrunCounts[uid] = underruns
                     self.lastOverrunCounts[uid] = overruns
                 }
+            }
+            self.telemetryCounter += 1
+            os_unfair_lock_unlock(&self.lock)
+
+            for message in warningMessages {
+                logger.warning("\(message)")
             }
         }
 
@@ -182,9 +195,9 @@ class SharedMemoryManager {
         os_unfair_lock_lock(&lock)
         let entries = deviceMemory
         deviceMemory.removeAll()
-        os_unfair_lock_unlock(&lock)
 
         for (uid, mem) in entries {
+            onWillUnmap?(mem)
             let size = rf_shared_audio_size(
                 mem.pointee.ring_capacity_frames,
                 mem.pointee.channels,
@@ -193,5 +206,6 @@ class SharedMemoryManager {
             munmap(mem, size)
             unlink(PathManager.sharedMemoryPath(uid: uid))
         }
+        os_unfair_lock_unlock(&lock)
     }
 }
