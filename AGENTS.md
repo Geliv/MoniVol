@@ -2,11 +2,11 @@
 
 ## 代码结构
 
-- `apps/mac/MoniVolApp/`：Swift 菜单栏应用、界面、驱动安装与手动更新检查。
+- `apps/mac/MoniVolApp/`：Swift 菜单栏应用、界面、驱动安装与 Sparkle 应用更新。
 - `packages/host/`：Swift 音频 Host，负责设备发现、代理切换、共享内存和向真实显示器播放音频。
 - `packages/driver/`：基于 `vendor/libASPL` 子模块的 CoreAudio HAL 虚拟驱动。
 - `packages/dsp/`：独立的 C++ DSP 库及测试；当前音量中转链路不使用旧 EQ 功能。
-- `tools/`：构建、打包、签名和驱动管理脚本。面向用户的安装与构建说明见 `README.md`。
+- `tools/`：构建、打包、签名和驱动管理脚本。面向用户的安装与构建说明见 `README.md`；README 的更新说明只写用户操作，不写更新框架与发布配置。
 
 ## 开发与验证
 
@@ -15,6 +15,7 @@
 - `./tools/build_release.sh` 构建 arm64 与 x86_64 的驱动、Host 和 App，并生成 `dist/MoniVol.app`。`make quick` 只重新构建 Swift 组件并复用已有驱动；修改驱动后不要用它验证结果。
 - `make test` 运行 `packages/dsp` 的测试，不能代替音频设备插拔、默认输出切换和实际播放验证。
 - `make build` 会先运行 `tools/update_versions.sh`，按最新 Git tag 更新 App、Host 和驱动版本文件。构建前后检查版本文件差异；没有 tag 时脚本使用 `1.0.0`。
+- 发布更新使用以 `v` 开头的 tag；CI 从 `SPARKLE_PRIVATE_KEY` secret 签名更新，并将 `appcast.xml` 部署到 GitHub Pages。
 - `make reset`、`packages/driver/install.sh` 和驱动卸载脚本会改动本机音频环境；不要把它们当作普通静态检查命令。
 
 ## 音频链路约束

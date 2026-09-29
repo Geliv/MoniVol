@@ -22,7 +22,7 @@
 - **菜单栏操作**：调节音量、静音和切换输出设备，也可手动检查更新。
 - **登录时打开**：可在“更多选项”中勾选，让 MoniVol 登录后自动启动。
 - **原生 SwiftUI 界面**：采用现代、简洁的菜单栏布局。
-- **轻量运行与安装**：当前 DMG 安装包不到 5 MB；在作者的日常使用环境中，常驻内存占用不到 30 MB。
+- **轻量运行与安装**：发布版 DMG 安装包约 5 MB；在作者的日常使用环境中，常驻内存占用不到 30 MB。
 - **自动处理插拔**：显示器断开后移除对应的虚拟设备并切回内建输出；同一显示器重新连接后自动恢复对应的 MoniVol 输出。
 - **只代理需要处理的显示器**：内建扬声器、蓝牙耳机和普通 USB 音频设备继续使用 macOS 原生输出。
 - **双架构支持**：支持 Apple Silicon 和 Intel Mac，最低系统版本为 macOS 13 Ventura。
@@ -53,7 +53,9 @@ brew install --cask Geliv/tap/monivol
 
 如需登录后自动启动，在菜单栏弹窗中打开“更多选项 → 登录时打开”并勾选。
 
-MoniVol 未经过 Apple 公证。如果 macOS 阻止首次打开，可前往“系统设置 → 隐私与安全性”选择“仍要打开”，或在终端移除应用的隔离属性：
+从 v1.1.5 起，“更多选项 → 检查更新”可在应用内下载并安装更新。旧版本需要先手动升级到 v1.1.5 或更新版本。
+
+如果 macOS 阻止首次打开手动安装、未经公证的版本，可前往“系统设置 → 隐私与安全性”选择“仍要打开”，或在终端移除应用的隔离属性：
 
 ```bash
 xattr -rd com.apple.quarantine /Applications/MoniVol.app
@@ -108,8 +110,6 @@ cd MoniVol
 sudo ditto dist/MoniVol.app /Applications/MoniVol.app
 open /Applications/MoniVol.app
 ```
-
-项目不提供 Developer ID 签名，GitHub Release 和本地源码构建均不经过 Apple 公证。
 
 ## 致谢
 

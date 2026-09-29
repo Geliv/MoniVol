@@ -22,7 +22,7 @@ Use your Mac's volume keys, mute key, and system volume slider with a connected 
 - **Menu bar controls**: Adjust volume, mute, switch output devices, and check for updates.
 - **Open at Login**: Start MoniVol automatically when you log in, using a checkbox in the More options menu.
 - **Native SwiftUI interface**: A modern, uncluttered menu bar layout.
-- **Small footprint**: The current DMG is under 5 MB, and MoniVol uses less than 30 MB of memory in the author's everyday setup.
+- **Small footprint**: The release DMG is about 5 MB, and MoniVol uses less than 30 MB of memory in the author's everyday setup.
 - **Automatic display handling**: Switches to built-in output when a display disconnects, then restores the corresponding MoniVol output when it reconnects.
 - **Selective proxying**: Built-in speakers, Bluetooth headphones, and ordinary USB audio devices continue to use native macOS output.
 - **Apple Silicon and Intel**: Universal app for macOS 13 Ventura or later.
@@ -53,10 +53,9 @@ Then launch MoniVol and complete steps 2–3 above.
 
 To start MoniVol automatically, open **More options → Open at Login** in the menu bar popover and check the option.
 
-In versions that include Sparkle, **More options → Check for Updates** downloads and installs updates in the app. The update feed is hosted on GitHub Pages; release DMGs remain on GitHub Releases.
-Existing installations need one manual upgrade to a version that includes Sparkle.
+Since v1.1.5, **More options → Check for Updates** downloads and installs updates in the app. Older installations need one manual upgrade to v1.1.5 or later.
 
-MoniVol is not notarized by Apple. If macOS blocks the first launch, go to **System Settings → Privacy & Security** and choose **Open Anyway**, or remove the app's quarantine attribute in Terminal:
+If macOS blocks the first launch of a manually installed, unnotarized build, go to **System Settings → Privacy & Security** and choose **Open Anyway**, or remove the app's quarantine attribute in Terminal:
 
 ```bash
 xattr -rd com.apple.quarantine /Applications/MoniVol.app
@@ -105,17 +104,12 @@ cd MoniVol
 
 If you already cloned the repository without submodules, run `git submodule update --init --recursive` first.
 
-The release workflow signs Sparkle updates with the `SPARKLE_PRIVATE_KEY` GitHub Actions secret and publishes `appcast.xml` to GitHub Pages. The matching public key is embedded in the app. Sparkle update signing is separate from Apple Developer ID signing and notarization.
-Publish releases using a `v`-prefixed tag so the GitHub Pages deployment environment accepts the appcast update.
-
 The universal app, audio Host, and HAL driver are bundled in `dist/MoniVol.app`. Open it directly, or copy it to Applications:
 
 ```bash
 sudo ditto dist/MoniVol.app /Applications/MoniVol.app
 open /Applications/MoniVol.app
 ```
-
-The project does not provide Developer ID signing. GitHub Release and local source builds are not notarized by Apple.
 
 ## Credits
 
