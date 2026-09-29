@@ -5,6 +5,7 @@ import SwiftUI
 struct OnboardingView: View {
     @ObservedObject var coordinator: OnboardingCoordinator
     @StateObject private var installer = DriverInstaller()
+    private let language = AppLanguage.selected
 
     var body: some View {
         ZStack {
@@ -35,21 +36,27 @@ struct OnboardingView: View {
             VStack(spacing: 10) {
                 AppIconView(size: 88)
 
-                Text("Set up MoniVol")
+                Text(language.text("Set up MoniVol", "设置 MoniVol"))
                     .font(.system(size: 32, weight: .bold))
 
-                Text("MoniVol lets you control your external monitor volume\nwith your keyboard volume keys.")
+                Text(language.text(
+                    "MoniVol lets you control your external monitor volume with your keyboard volume keys.",
+                    "MoniVol 让你通过键盘音量键控制外接显示器音量。"
+                ))
                     .font(.system(size: 16))
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(2)
+                    .frame(maxWidth: 520)
             }
 
             VStack(spacing: 0) {
                 setupStep(
                     number: 1,
                     icon: "gearshape.fill",
-                    title: installer.state.isComplete ? "Audio Driver Installed" : "Install Audio Driver",
+                    title: installer.state.isComplete
+                        ? language.text("Audio Driver Installed", "音频驱动已安装")
+                        : language.text("Install Audio Driver", "安装音频驱动"),
                     detail: driverStepDetail,
                     isActive: !installer.state.isComplete,
                     isComplete: installer.state.isComplete
@@ -63,8 +70,11 @@ struct OnboardingView: View {
                 setupStep(
                     number: 2,
                     icon: "speaker.wave.2.fill",
-                    title: "Select MoniVol in Sound Settings",
-                    detail: "Open System Settings → Sound and select the\nMoniVol device to get started.",
+                    title: language.text("Select MoniVol in Sound Settings", "在声音设置中选择 MoniVol"),
+                    detail: language.text(
+                        "Open System Settings → Sound and select the MoniVol device to get started.",
+                        "打开“系统设置 → 声音”，选择 MoniVol 设备即可开始使用。"
+                    ),
                     isActive: installer.state.isComplete,
                     isComplete: false
                 )
@@ -150,7 +160,7 @@ struct OnboardingView: View {
     private var actions: some View {
         HStack {
             if !installer.state.isComplete {
-                Button("Skip for now") {
+                Button(language.text("Skip for now", "暂时跳过")) {
                     coordinator.complete()
                 }
                 .controlSize(.large)
@@ -165,7 +175,7 @@ struct OnboardingView: View {
     @ViewBuilder
     private var primaryButton: some View {
         if installer.state.isComplete {
-            Button("Open MoniVol") {
+            Button(language.text("Open MoniVol", "打开 MoniVol")) {
                 coordinator.complete()
             }
             .keyboardShortcut(.return)
@@ -173,13 +183,18 @@ struct OnboardingView: View {
             .controlSize(.large)
             .frame(minWidth: 150)
         } else if installer.state.isFailed {
-            Button("Retry", action: installDriver)
+            Button(language.text("Retry", "重试"), action: installDriver)
                 .keyboardShortcut(.return)
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .frame(minWidth: 150)
         } else {
-            Button(isInstalling ? "Installing…" : "Install Driver", action: installDriver)
+            Button(
+                isInstalling
+                    ? language.text("Installing…", "正在安装…")
+                    : language.text("Install Driver", "安装驱动"),
+                action: installDriver
+            )
                 .keyboardShortcut(.return)
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
@@ -197,13 +212,24 @@ struct OnboardingView: View {
     private var driverStepDetail: String {
         switch installer.state {
         case .notStarted:
-            return "An audio driver is required to enable volume control.\nThis requires an administrator password."
+            return language.text(
+                "An audio driver is required to enable volume control. This requires an administrator password.",
+                "启用音量控制需要安装音频驱动，此操作需要管理员密码。"
+            )
+        case .checkingExisting:
+            return language.text("Checking for existing driver...", "正在检查现有驱动…")
+        case .copying:
+            return language.text("Copying driver files...", "正在复制驱动文件…")
+        case .settingPermissions:
+            return language.text("Setting permissions...", "正在设置权限…")
+        case .restartingAudio:
+            return language.text("Restarting audio system...", "正在重新启动音频系统…")
+        case .verifying:
+            return language.text("Verifying installation...", "正在验证安装…")
         case .complete:
-            return "The audio driver is installed and ready."
+            return language.text("The audio driver is installed and ready.", "音频驱动已安装，可以开始使用。")
         case .failed(let message):
-            return "Installation failed: \(message)"
-        default:
-            return installer.state.description
+            return language.text("Installation failed: ", "安装失败：") + message
         }
     }
 

@@ -1,84 +1,16 @@
 import SwiftUI
 import AppKit
 
-private enum MenuLanguage: String, CaseIterable {
-    case english = "en"
-    case chinese = "zh"
-    case japanese = "ja"
-    case french = "fr"
-    case german = "de"
-    case russian = "ru"
-
-    var name: String {
-        switch self {
-        case .english: return "English"
-        case .chinese: return "简体中文"
-        case .japanese: return "日本語"
-        case .french: return "Français"
-        case .german: return "Deutsch"
-        case .russian: return "Русский"
-        }
-    }
-
-    func text(_ english: String, _ chinese: String) -> String {
-        switch self {
-        case .english: return english
-        case .chinese: return chinese
-        case .japanese: return Self.translations[english]?.japanese ?? english
-        case .french: return Self.translations[english]?.french ?? english
-        case .german: return Self.translations[english]?.german ?? english
-        case .russian: return Self.translations[english]?.russian ?? english
-        }
-    }
-
-    private struct Translations {
-        let japanese: String
-        let french: String
-        let german: String
-        let russian: String
-    }
-
-    private static let translations: [String: Translations] = [
-        "Output Device": .init(japanese: "出力デバイス", french: "Périphérique de sortie", german: "Ausgabegerät", russian: "Устройство вывода"),
-        "Language": .init(japanese: "言語", french: "Langue", german: "Sprache", russian: "Язык"),
-        "Quit App": .init(japanese: "アプリを終了", french: "Quitter l’app", german: "App beenden", russian: "Выйти"),
-        "External display volume": .init(japanese: "外部ディスプレイの音量", french: "Volume de l’écran externe", german: "Lautstärke des Monitors", russian: "Громкость монитора"),
-        "More options": .init(japanese: "その他の操作", french: "Plus d’options", german: "Weitere Optionen", russian: "Дополнительно"),
-        "Open at Login": .init(japanese: "ログイン時に開く", french: "Ouvrir à la connexion", german: "Bei Anmeldung öffnen", russian: "Открывать при входе"),
-        "Could Not Change Login Setting": .init(japanese: "ログイン設定を変更できませんでした", french: "Impossible de modifier le réglage de connexion", german: "Anmeldeeinstellung konnte nicht geändert werden", russian: "Не удалось изменить настройку входа"),
-        "Check for Updates": .init(japanese: "更新を確認", french: "Vérifier les mises à jour", german: "Auf Updates prüfen", russian: "Проверить обновления"),
-        "About MoniVol": .init(japanese: "MoniVol について", french: "À propos de MoniVol", german: "Über MoniVol", russian: "О MoniVol"),
-        "No Device": .init(japanese: "デバイスなし", french: "Aucun appareil", german: "Kein Gerät", russian: "Нет устройства"),
-        "Mute or unmute": .init(japanese: "ミュートを切り替え", french: "Activer ou couper le son", german: "Stumm schalten", russian: "Включить или выключить звук"),
-        "This device supports native volume control": .init(japanese: "このデバイスはシステムの音量調節に対応しています", french: "Réglage du volume système disponible", german: "Systemlautstärke verfügbar", russian: "Доступна системная регулировка громкости"),
-        "Fixed": .init(japanese: "修復済み", french: "Corrigé", german: "Behoben", russian: "Исправлено"),
-        "External Display": .init(japanese: "外部ディスプレイ", french: "Écran externe", german: "Externer Monitor", russian: "Внешний монитор"),
-        "Built-in Output": .init(japanese: "内蔵出力", french: "Sortie intégrée", german: "Integrierte Ausgabe", russian: "Встроенный выход"),
-        "Audio Output": .init(japanese: "オーディオ出力", french: "Sortie audio", german: "Audioausgabe", russian: "Аудиовыход"),
-        "Reconnected": .init(japanese: "再接続しました", french: "Reconnecté", german: "Wieder verbunden", russian: "Переподключено"),
-        "Reconnect": .init(japanese: "再接続", french: "Reconnecter", german: "Neu verbinden", russian: "Переподключить"),
-        "Uninstall Driver": .init(japanese: "ドライバを削除", french: "Désinstaller le pilote", german: "Treiber deinstallieren", russian: "Удалить драйвер"),
-        "Uninstall MoniVol Driver": .init(japanese: "MoniVol ドライバを削除", french: "Désinstaller le pilote MoniVol", german: "MoniVol-Treiber deinstallieren", russian: "Удалить драйвер MoniVol"),
-        "This will remove the audio driver, stop background processes, and clear configuration data. The app itself will not be deleted — you can reinstall the driver anytime.": .init(
-            japanese: "オーディオドライバを削除し、バックグラウンドプロセスを停止して設定データを消去します。アプリは削除されず、ドライバは後で再インストールできます。",
-            french: "Le pilote audio sera supprimé, les processus en arrière-plan arrêtés et les réglages effacés. L’application restera installée ; vous pourrez réinstaller le pilote plus tard.",
-            german: "Der Audiotreiber wird entfernt, Hintergrundprozesse werden beendet und Einstellungen gelöscht. Die App bleibt installiert; der Treiber kann später erneut installiert werden.",
-            russian: "Аудиодрайвер будет удалён, фоновые процессы остановлены, а настройки очищены. Приложение останется установленным; драйвер можно установить позже."
-        ),
-        "Cancel": .init(japanese: "キャンセル", french: "Annuler", german: "Abbrechen", russian: "Отмена")
-    ]
-}
-
 struct MenuBarView: View {
     @StateObject private var volumeController = VolumeController.shared
-    @AppStorage("menuLanguage") private var languageCode = MenuLanguage.english.rawValue
+    @AppStorage(AppLanguage.storageKey) private var languageCode = AppLanguage.systemDefault.rawValue
     @State private var showOptions = false
     @State private var showLanguages = false
     @State private var opensAtLogin = false
     @State private var isUpdatingLoginItem = false
 
-    private var language: MenuLanguage {
-        MenuLanguage(rawValue: languageCode) ?? .english
+    private var language: AppLanguage {
+        AppLanguage(rawValue: languageCode) ?? .systemDefault
     }
 
     private var activeDevice: OutputDevice? {
@@ -153,7 +85,7 @@ struct MenuBarView: View {
             if showLanguages {
                 ScrollView(.vertical) {
                     VStack(spacing: 0) {
-                        ForEach(MenuLanguage.allCases, id: \.rawValue) { option in
+                        ForEach(AppLanguage.allCases, id: \.rawValue) { option in
                             if option != .english {
                                 Rectangle()
                                     .fill(Color.primary.opacity(0.08))
@@ -337,7 +269,7 @@ struct MenuBarView: View {
         }
     }
 
-    private func languageOption(_ option: MenuLanguage) -> some View {
+    private func languageOption(_ option: AppLanguage) -> some View {
         Button {
             languageCode = option.rawValue
             showLanguages = false
@@ -419,7 +351,7 @@ private struct ActiveDeviceCard: View {
     @Binding var volume: Float
     let isMuted: Bool
     let onToggleMute: () -> Void
-    let language: MenuLanguage
+    let language: AppLanguage
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -494,7 +426,7 @@ private struct ActiveDeviceCard: View {
 }
 
 private struct FixedBadge: View {
-    let language: MenuLanguage
+    let language: AppLanguage
 
     var body: some View {
         Text(language.text("Fixed", "已修复"))
@@ -509,7 +441,7 @@ private struct FixedBadge: View {
     }
 }
 
-private func deviceCategory(name: String, isFixed: Bool, language: MenuLanguage) -> String {
+private func deviceCategory(name: String, isFixed: Bool, language: AppLanguage) -> String {
     if isFixed { return language.text("External Display", "外接显示器") }
     if name.localizedCaseInsensitiveContains("MacBook")
         || name.localizedCaseInsensitiveContains("Built-in")
@@ -533,7 +465,7 @@ private func deviceSymbol(name: String, isFixed: Bool) -> String {
 private struct DeviceListSection: View {
     let devices: [OutputDevice]
     let activeUID: String
-    let language: MenuLanguage
+    let language: AppLanguage
     let onSelect: (OutputDevice) -> Void
     private let maxVisibleDevices = 5
     private let rowHeight: CGFloat = 44
@@ -583,7 +515,7 @@ private struct DeviceListSection: View {
 private struct DeviceRow: View {
     let device: OutputDevice
     let isActive: Bool
-    let language: MenuLanguage
+    let language: AppLanguage
     let onSelect: () -> Void
 
     var body: some View {
@@ -630,7 +562,7 @@ private struct DeviceRow: View {
 }
 
 private struct ReconnectAudioButton: View {
-    let language: MenuLanguage
+    let language: AppLanguage
     @State private var isBouncing = false
     @State private var showDone = false
 
@@ -669,7 +601,7 @@ private struct ReconnectAudioButton: View {
 }
 
 private struct UninstallButton: View {
-    let language: MenuLanguage
+    let language: AppLanguage
     let onSelect: () -> Void
 
     var body: some View {
@@ -740,7 +672,8 @@ private struct UninstallButton: View {
         // Clean up UserDefaults (onboarding state)
         let defaults = UserDefaults.standard
         for key in ["hasCompletedOnboarding", "onboardingVersion",
-                     "driverInstallDate", "lastDriverVersionCheck"] {
+                     "driverInstallDate", "lastDriverVersionCheck",
+                     AppLanguage.storageKey, "menuLanguage"] {
             defaults.removeObject(forKey: key)
         }
         defaults.synchronize()

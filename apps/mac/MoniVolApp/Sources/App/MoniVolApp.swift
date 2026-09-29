@@ -116,6 +116,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func performDriverUpdate() {
         guard !isUpdatingDriver else { return }
+        let language = AppLanguage.selected
 
         // Close the update window
         driverUpdateWindow?.close()
@@ -141,20 +142,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                 // Show success alert
                 let alert = NSAlert()
-                alert.messageText = "Driver Updated"
-                alert.informativeText = "The MoniVol audio driver has been updated to version \(VersionManager.bundledDriverVersion() ?? "unknown")."
+                let version = VersionManager.bundledDriverVersion()
+                    ?? language.text("unknown", "未知")
+                alert.messageText = language.text("Driver Updated", "驱动已更新")
+                alert.informativeText = String(
+                    format: language.text(
+                        "The MoniVol audio driver has been updated to version %@.",
+                        "MoniVol 音频驱动已更新至版本 %@。"
+                    ),
+                    version
+                )
                 alert.alertStyle = .informational
-                alert.addButton(withTitle: "OK")
+                alert.addButton(withTitle: language.text("OK", "好"))
                 alert.runModal()
             } catch {
                 print("Driver update failed: \(error)")
                 self.finishDriverUpdate()
 
                 let alert = NSAlert()
-                alert.messageText = "Update Failed"
-                alert.informativeText = "Failed to update driver: \(error.localizedDescription)"
+                alert.messageText = language.text("Update Failed", "更新失败")
+                alert.informativeText = String(
+                    format: language.text("Failed to update driver: %@", "更新驱动失败：%@"),
+                    error.localizedDescription
+                )
                 alert.alertStyle = .critical
-                alert.addButton(withTitle: "OK")
+                alert.addButton(withTitle: language.text("OK", "好"))
                 alert.runModal()
             }
         }
@@ -983,11 +995,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func showAlert(_ title: String, _ message: String) {
+        let language = AppLanguage.selected
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = message
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: language.text("OK", "好"))
         alert.runModal()
     }
 

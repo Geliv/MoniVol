@@ -303,19 +303,38 @@ enum DriverInstallError: Error, LocalizedError {
     case uninstallFailed(String)
 
     var errorDescription: String? {
+        let language = AppLanguage.selected
         switch self {
         case .driverNotFound:
-            return "Driver bundle not found in app resources"
+            return language.text(
+                "Driver bundle not found in app resources",
+                "未在应用资源中找到驱动文件"
+            )
         case .copyFailed(let message):
-            return "Failed to copy driver: \(message)"
+            return String(
+                format: language.text("Failed to copy driver: %@", "复制驱动失败：%@"),
+                message
+            )
         case .permissionsFailed(let message):
-            return "Failed to set permissions: \(message)"
+            return String(
+                format: language.text("Failed to set permissions: %@", "设置权限失败：%@"),
+                message
+            )
         case .audioRestartFailed(let message):
-            return "Failed to restart audio system: \(message)"
+            return String(
+                format: language.text("Failed to restart audio system: %@", "重新启动音频系统失败：%@"),
+                message
+            )
         case .verificationFailed:
-            return "Driver installation could not be verified"
+            return language.text(
+                "Driver installation could not be verified",
+                "无法验证驱动安装结果"
+            )
         case .uninstallFailed(let message):
-            return "Failed to uninstall driver: \(message)"
+            return String(
+                format: language.text("Failed to uninstall driver: %@", "卸载驱动失败：%@"),
+                message
+            )
         }
     }
 }

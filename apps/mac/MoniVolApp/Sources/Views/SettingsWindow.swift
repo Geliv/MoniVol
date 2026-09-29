@@ -4,6 +4,7 @@ import AppKit
 /// Settings window for MoniVol preferences
 class SettingsWindow: NSWindow {
 	init() {
+		let language = AppLanguage.selected
 		super.init(
 			contentRect: NSRect(x: 0, y: 0, width: 500, height: 450),
 			styleMask: [.titled, .closable],
@@ -11,7 +12,7 @@ class SettingsWindow: NSWindow {
 			defer: false
 		)
 
-		self.title = "MoniVol Settings"
+		self.title = language.text("MoniVol Settings", "MoniVol 设置")
 		self.isReleasedWhenClosed = false
 		self.contentView = NSHostingView(
 			rootView: SettingsView()
@@ -20,6 +21,8 @@ class SettingsWindow: NSWindow {
 }
 
 struct SettingsView: View {
+	private let language = AppLanguage.selected
+
 	var body: some View {
 		VStack(spacing: 0) {
 			// Header
@@ -31,7 +34,7 @@ struct SettingsView: View {
 					.fontWeight(.semibold)
 
 				if let version = VersionManager.appVersion() {
-					Text("Version \(version)")
+					Text("\(language.text("Version", "版本")) \(version)")
 						.font(.subheadline)
 						.foregroundColor(.secondary)
 				}
@@ -46,7 +49,7 @@ struct SettingsView: View {
 				VStack(spacing: 24) {
 					// Update Settings Section
 					VStack(alignment: .leading, spacing: 16) {
-						Text("Updates")
+						Text(language.text("Updates", "更新"))
 							.font(.headline)
 							.foregroundColor(.primary)
 
@@ -54,7 +57,7 @@ struct SettingsView: View {
 							Button(action: UpdateChecker.checkForUpdates) {
 								HStack {
 									Image(systemName: "arrow.triangle.2.circlepath")
-									Text("Check for Updates")
+									Text(language.text("Check for Updates", "检查更新"))
 								}
 								.frame(maxWidth: .infinity)
 							}
@@ -67,26 +70,32 @@ struct SettingsView: View {
 
 					// System Info Section
 					VStack(alignment: .leading, spacing: 16) {
-						Text("System Info")
+						Text(language.text("System Info", "系统信息"))
 							.font(.headline)
 							.foregroundColor(.primary)
 
 						VStack(alignment: .leading, spacing: 10) {
 							if let appVersion = VersionManager.appVersion() {
-								InfoRow(label: "App Version", value: appVersion)
+								InfoRow(label: language.text("App Version", "应用版本"), value: appVersion)
 							}
 
 							if VersionManager.isDriverInstalled() {
 								if let driverVersion = VersionManager.installedDriverVersion() {
-									InfoRow(label: "Driver Version", value: driverVersion)
+									InfoRow(label: language.text("Driver Version", "驱动版本"), value: driverVersion)
 								}
 							} else {
-								InfoRow(label: "Driver Status", value: "Not Installed")
+								InfoRow(
+									label: language.text("Driver Status", "驱动状态"),
+									value: language.text("Not Installed", "未安装")
+								)
 									.foregroundColor(.orange)
 							}
 
 							if let installDate = OnboardingState.driverInstallDate() {
-								InfoRow(label: "Driver Installed", value: formatDate(installDate))
+								InfoRow(
+									label: language.text("Driver Installed", "驱动安装时间"),
+									value: formatDate(installDate)
+								)
 							}
 						}
 					}
@@ -96,17 +105,22 @@ struct SettingsView: View {
 
 					// About Section
 					VStack(alignment: .leading, spacing: 16) {
-						Text("About")
+						Text(language.text("About", "关于"))
 							.font(.headline)
 							.foregroundColor(.primary)
 
 						VStack(alignment: .leading, spacing: 8) {
-							Text("MoniVol controls the volume of external display audio on macOS.")
+							Text(language.text(
+								"MoniVol controls the volume of external display audio on macOS.",
+								"MoniVol 用于控制 macOS 外接显示器的音频音量。"
+							))
 								.font(.caption)
 								.foregroundColor(.secondary)
 
-							Link("Visit Website", destination: URL(string: "https://monivol.app")!)
-								.font(.caption)
+							Link(destination: URL(string: "https://monivol.app")!) {
+								Text(language.text("Visit Website", "访问网站"))
+									.font(.caption)
+							}
 						}
 					}
 					.padding(16)
@@ -121,6 +135,7 @@ struct SettingsView: View {
 
 	private func formatDate(_ date: Date) -> String {
 		let formatter = DateFormatter()
+		formatter.locale = Locale(identifier: language.rawValue)
 		formatter.dateStyle = .medium
 		formatter.timeStyle = .none
 		return formatter.string(from: date)
