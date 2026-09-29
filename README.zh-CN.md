@@ -22,7 +22,7 @@
 - **菜单栏操作**：调节音量、静音和切换输出设备，也可手动检查更新。
 - **登录时打开**：可在“更多选项”中勾选，让 MoniVol 登录后自动启动。
 - **原生 SwiftUI 界面**：采用现代、简洁的菜单栏布局。
-- **轻量运行与安装**：发布版 DMG 安装包约 5 MB；在作者的日常使用环境中，常驻内存占用不到 30 MB。
+- **轻量运行与安装**：发布版 DMG 安装包约 5 MB；在作者的日常使用环境中，常驻内存占用约 30 MB。
 - **自动处理插拔**：显示器断开后移除对应的虚拟设备并切回内建输出；同一显示器重新连接后自动恢复对应的 MoniVol 输出。
 - **只代理需要处理的显示器**：内建扬声器、蓝牙耳机和普通 USB 音频设备继续使用 macOS 原生输出。
 - **双架构支持**：支持 Apple Silicon 和 Intel Mac，最低系统版本为 macOS 13 Ventura。
@@ -33,7 +33,7 @@ macOS 对部分 HDMI／DisplayPort 音频设备没有提供软件音量控制；
 
 SoundSource、eqMac、FineTune 等应用覆盖更广的音频控制需求，例如 EQ、分应用音量和路由。MoniVol 专注于一个场景：让外接显示器的系统音量控制可用，同时保持其他输出设备的原生行为。它没有这些额外的音频处理功能，常驻逻辑也更精简。
 
-在作者的日常使用环境中，SoundSource 长时间运行后的内存占用曾达到约 400–500 MB，MoniVol 则不到 30 MB。内存占用会随系统版本、连接设备和运行时间变化。
+在作者的日常使用环境中，SoundSource 长时间运行后的内存占用曾达到约 400–500 MB，MoniVol 则约为 30 MB。内存占用会随系统版本、连接设备和运行时间变化。
 
 ## 安装
 
@@ -42,6 +42,11 @@ SoundSource、eqMac、FineTune 等应用覆盖更广的音频控制需求，例�
 1. 打开 DMG，将 `MoniVol.app` 拖入“应用程序”目录。
 2. 启动 MoniVol，按首次运行引导安装音频驱动；此步骤需要管理员密码。
 3. 在 MoniVol 菜单栏的输出设备列表中选择显示器，或在系统声音输出列表中选择对应的 `（MoniVol）` 设备。
+
+<p align="center">
+  <img src="assets/onboarding.jpg" alt="MoniVol 首次运行引导" width="680">
+</p>
+<p align="center"><em>首次运行引导</em></p>
 
 也可以通过 [MoniVol Homebrew tap](https://github.com/Geliv/homebrew-tap) 安装应用：
 

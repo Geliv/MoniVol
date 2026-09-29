@@ -22,7 +22,7 @@ Use your Mac's volume keys, mute key, and system volume slider with a connected 
 - **Menu bar controls**: Adjust volume, mute, switch output devices, and check for updates.
 - **Open at Login**: Start MoniVol automatically when you log in, using a checkbox in the More options menu.
 - **Native SwiftUI interface**: A modern, uncluttered menu bar layout.
-- **Small footprint**: The release DMG is about 5 MB, and MoniVol uses less than 30 MB of memory in the author's everyday setup.
+- **Small footprint**: The release DMG is about 5 MB, and MoniVol uses about 30 MB of memory in the author's everyday setup.
 - **Automatic display handling**: Switches to built-in output when a display disconnects, then restores the corresponding MoniVol output when it reconnects.
 - **Selective proxying**: Built-in speakers, Bluetooth headphones, and ordinary USB audio devices continue to use native macOS output.
 - **Apple Silicon and Intel**: Universal app for macOS 13 Ventura or later.
@@ -33,7 +33,7 @@ macOS does not offer software volume control for some HDMI and DisplayPort audio
 
 SoundSource, eqMac, and FineTune cover broader audio needs, including EQ, per-app volume, and routing. MoniVol focuses on making system volume control work for external displays while leaving other output devices on their native audio paths.
 
-In the author's everyday setup, SoundSource has reached about 400–500 MB of memory after extended use, while MoniVol stays under 30 MB. Memory use varies with macOS version, connected devices, and uptime.
+In the author's everyday setup, SoundSource has reached about 400–500 MB of memory after extended use, while MoniVol uses about 30 MB. Memory use varies with macOS version, connected devices, and uptime.
 
 ## Install
 
@@ -42,6 +42,11 @@ Download the latest `MoniVol.dmg` from [GitHub Releases](https://github.com/Geli
 1. Open the DMG and drag `MoniVol.app` into Applications.
 2. Launch MoniVol and follow the first-run guide to install the audio driver. This step requires an administrator password.
 3. Select the display in MoniVol's menu bar device list, or select its corresponding `(MoniVol)` output in macOS Sound settings.
+
+<p align="center">
+  <img src="assets/onboarding.jpg" alt="MoniVol first-run setup" width="680">
+</p>
+<p align="center"><em>First-run setup</em></p>
 
 Alternatively, install the app from the [MoniVol Homebrew tap](https://github.com/Geliv/homebrew-tap):
 
