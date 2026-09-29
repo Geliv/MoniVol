@@ -122,14 +122,6 @@ jobs:
       # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
       #  Build All Components
       # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-      - name: Build DSP Library (universal)
-        run: |
-          cmake -S packages/dsp -B packages/dsp/build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
-          cmake --build packages/dsp/build --config Release --parallel
-          echo "✓ DSP library built (universal)"
-
       - name: Build HAL Driver (universal)
         run: |
           cmake -S packages/driver -B packages/driver/build \

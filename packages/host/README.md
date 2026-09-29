@@ -13,4 +13,4 @@ cd packages/host
 swift build -c release
 ```
 
-The Host uses CoreAudio, AudioToolbox, and the shared-memory C interface in `CMoniVolAudio`. The previous EQ library is not linked into the Host.
+The Host uses CoreAudio, AudioToolbox, and the shared-memory C interface in `CMoniVolAudio`.

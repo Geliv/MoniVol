@@ -1,6 +1,6 @@
 # MoniVol HAL Driver
 
-A CoreAudio HAL (Hardware Abstraction Layer) plugin for macOS that creates virtual proxy output devices. When an app sends audio to a proxy device, the driver writes it into shared memory. The host process reads from shared memory, runs DSP, and renders to the real hardware device.
+A CoreAudio HAL (Hardware Abstraction Layer) plugin for macOS that creates virtual proxy output devices. When an app sends audio to a proxy device, the driver writes it into shared memory. The host process reads from shared memory and renders to the real hardware device.
 
 The driver runs inside `coreaudiod` (not as a standalone process). When installed at `/Library/Audio/Plug-Ins/HAL/MoniVolDriver.driver`, macOS loads it as a system audio plugin.
 
@@ -31,7 +31,6 @@ Application audio
 +--------------------------+
 | MoniVolHost            |
 | - ring buffer read       |
-| - DSP processing         |
 | - hardware output        |
 +--------------------------+
 ```

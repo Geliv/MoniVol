@@ -1,7 +1,7 @@
 # MoniVol Development Makefile
 # Shortcuts for building, testing, and running MoniVol
 
-.PHONY: help clean build run dev reset bundle install-deps test sign verify release test-release quick rebuild dmg full-release changelog update-version
+.PHONY: help clean build run dev reset bundle install-deps sign verify release test-release quick rebuild dmg full-release changelog update-version
 
 # Default target - show help
 help:
@@ -32,7 +32,6 @@ help:
 	@echo "    make full-release - Complete pipeline (build + sign + DMG)"
 	@echo ""
 	@echo "  Other:"
-	@echo "    make test         - Run DSP tests"
 	@echo "    make install-deps - Install build dependencies"
 	@echo "    make changelog    - Update CHANGELOG.md (optional: VERSION=vX.Y.Z)"
 	@echo ""
@@ -74,7 +73,6 @@ bundle:
 # Clean all build artifacts
 clean:
 	@echo "Cleaning build artifacts..."
-	@rm -rf packages/dsp/build
 	@rm -rf packages/driver/build
 	@rm -rf packages/host/.build
 	@rm -rf apps/mac/MoniVolApp/.build
@@ -98,16 +96,6 @@ install-deps:
 	@which cmake > /dev/null || (echo "❌ CMake not found. Install with: brew install cmake" && exit 1)
 	@which swift > /dev/null || (echo "❌ Swift not found. Install Xcode." && exit 1)
 	@echo "✓ All dependencies installed"
-
-# Run DSP tests
-test:
-	@echo "Running DSP tests..."
-	@cd packages/dsp && \
-	mkdir -p build && \
-	cd build && \
-	cmake .. && \
-	cmake --build . && \
-	./monivol_dsp_tests
 
 # Quick rebuild (for when you only changed Swift code)
 quick:

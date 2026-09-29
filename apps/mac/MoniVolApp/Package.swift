@@ -53,19 +53,12 @@ let package = Package(
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0")
     ],
     targets: [
-        .target(
-            name: "CMoniVolAudio",
-            path: "Sources/CMoniVolAudio",
-            publicHeadersPath: "include"
-        ),
         .executableTarget(
             name: "MoniVolApp",
             dependencies: [
-                "CMoniVolAudio",
                 .product(name: "Sparkle", package: "Sparkle")
             ],
             path: "Sources",
-            exclude: ["CMoniVolAudio"],
             resources: [
                 .copy("Resources")
             ],
