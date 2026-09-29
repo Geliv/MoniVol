@@ -17,6 +17,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var driverUpdateWindow: DriverUpdateWindow?
     private var hostWatchdogTimer: DispatchSourceTimer?
     private var isTerminating = false
+    private var isUpdatingDriver = false
     /// Set to true during uninstall so the Host watchdog does not relaunch it.
     var isUninstalling = false
 
@@ -81,19 +82,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             print("  Installed: \(installedVersion)")
             print("  Bundled: \(bundledVersion)")
 
-            // Only prompt if we haven't already prompted for this version
-            if OnboardingState.lastDriverVersionCheck() != bundledVersion {
-                // Show update prompt
-                showDriverUpdatePrompt(
-                    currentVersion: installedVersion,
-                    newVersion: bundledVersion
-                )
-
-                // Mark this version as checked
-                OnboardingState.updateLastDriverVersionCheck(bundledVersion)
-            } else {
-                print("Already prompted for version \(bundledVersion), skipping")
-            }
+            showDriverUpdatePrompt(
+                currentVersion: installedVersion,
+                newVersion: bundledVersion
+            )
         } else {
             print("✓ Driver version is up to date")
         }
@@ -122,39 +114,55 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func performDriverUpdate() {
+        guard !isUpdatingDriver else { return }
+
         // Close the update window
         driverUpdateWindow?.close()
         driverUpdateWindow = nil
+        isUpdatingDriver = true
+        stopHostWatchdog()
 
         // Use existing DriverInstaller logic
         let installer = DriverInstaller()
 
-        Task {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.stopHostForDriverUpdate()
+
             do {
                 try await installer.installDriver()
                 print("✓ Driver updated successfully")
 
-                // Show success alert
-                await MainActor.run {
-                    let alert = NSAlert()
-                    alert.messageText = "Driver Updated"
-                    alert.informativeText = "The MoniVol audio driver has been updated to version \(VersionManager.bundledDriverVersion() ?? "unknown")."
-                    alert.alertStyle = .informational
-                    alert.addButton(withTitle: "OK")
-                    alert.runModal()
+                if let bundledVersion = VersionManager.bundledDriverVersion() {
+                    OnboardingState.updateLastDriverVersionCheck(bundledVersion)
                 }
+                self.finishDriverUpdate()
+
+                // Show success alert
+                let alert = NSAlert()
+                alert.messageText = "Driver Updated"
+                alert.informativeText = "The MoniVol audio driver has been updated to version \(VersionManager.bundledDriverVersion() ?? "unknown")."
+                alert.alertStyle = .informational
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
             } catch {
                 print("Driver update failed: \(error)")
-                await MainActor.run {
-                    let alert = NSAlert()
-                    alert.messageText = "Update Failed"
-                    alert.informativeText = "Failed to update driver: \(error.localizedDescription)"
-                    alert.alertStyle = .critical
-                    alert.addButton(withTitle: "OK")
-                    alert.runModal()
-                }
+                self.finishDriverUpdate()
+
+                let alert = NSAlert()
+                alert.messageText = "Update Failed"
+                alert.informativeText = "Failed to update driver: \(error.localizedDescription)"
+                alert.alertStyle = .critical
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
             }
         }
+    }
+
+    private func finishDriverUpdate() {
+        VolumeController.shared.recoverAfterAudioSystemRestart()
+        isUpdatingDriver = false
+        startHostWatchdog()
     }
 
     func showOnboarding() {
@@ -226,8 +234,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         isTerminating = true
-        hostWatchdogTimer?.cancel()
-        hostWatchdogTimer = nil
+        stopHostWatchdog()
 
         // If uninstalling, driver and host are already gone — skip heavy cleanup
         if isUninstalling {
@@ -368,10 +375,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             unlink(controlFile)
         }
 
-        // Remove shared memory files the driver might watch
+        // Remove shared memory files without deleting diagnostics or temp directories.
         if let tmpItems = try? fm.contentsOfDirectory(atPath: "/tmp") {
-            for item in tmpItems where item.hasPrefix("monivol-") {
+            for item in tmpItems where item.hasPrefix("monivol-") &&
+                item != "monivol-devices.txt" &&
+                item != "monivol-driver-debug.log" {
                 let path = "/tmp/\(item)"
+                var isDirectory: ObjCBool = false
+                guard fm.fileExists(atPath: path, isDirectory: &isDirectory),
+                      !isDirectory.boolValue else {
+                    continue
+                }
                 logger("Removing shared memory file \(path)")
                 unlink(path)
             }
@@ -617,7 +631,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func launchHostIfNeeded() {
-        guard !isTerminating, !isUninstalling else { return }
+        guard !isTerminating, !isUninstalling, !isUpdatingDriver else { return }
 
         if let process = hostProcess, process.isRunning {
             return
@@ -654,7 +668,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startHostWatchdog() {
-        guard hostWatchdogTimer == nil else { return }
+        guard hostWatchdogTimer == nil, !isUpdatingDriver else { return }
 
         launchHostIfNeeded()
 
@@ -665,6 +679,69 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         hostWatchdogTimer = timer
         timer.resume()
+    }
+
+    private func stopHostWatchdog() {
+        hostWatchdogTimer?.cancel()
+        hostWatchdogTimer = nil
+    }
+
+    @MainActor
+    private func stopHostForDriverUpdate() async {
+        let pids = runningHostProcessIDs()
+        guard !pids.isEmpty else {
+            cleanupTempIPC(logger: { print($0) })
+            hostProcess = nil
+            return
+        }
+
+        for pid in pids {
+            print("Stopping MoniVolHost for driver update (pid \(pid))...")
+            kill(pid, SIGUSR1)
+        }
+
+        let deadline = Date().addingTimeInterval(3.0)
+        var remaining = pids
+        while !remaining.isEmpty && Date() < deadline {
+            remaining.removeAll { kill($0, 0) != 0 }
+            if !remaining.isEmpty {
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+        }
+
+        for pid in remaining {
+            print("MoniVolHost did not exit cleanly; sending SIGKILL to pid \(pid)")
+            kill(pid, SIGKILL)
+        }
+        if !remaining.isEmpty {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+
+        cleanupTempIPC(logger: { print($0) })
+        hostProcess = nil
+    }
+
+    private func runningHostProcessIDs() -> [Int32] {
+        let task = Process()
+        task.launchPath = "/usr/bin/pgrep"
+        task.arguments = ["-x", "MoniVolHost"]
+
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = FileHandle.nullDevice
+
+        do {
+            try task.run()
+            task.waitUntilExit()
+        } catch {
+            print("Failed to enumerate MoniVolHost processes: \(error)")
+            return []
+        }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8)?
+            .split(separator: "\n")
+            .compactMap { Int32($0) } ?? []
     }
 
     func startHost() {
@@ -768,7 +845,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 if self.hostProcess === process {
                     self.hostProcess = nil
                 }
-                if !self.isTerminating && !self.isUninstalling {
+                if !self.isTerminating && !self.isUninstalling && !self.isUpdatingDriver {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
                         self?.launchHostIfNeeded()
                     }

@@ -417,6 +417,15 @@ class VolumeController: ObservableObject {
         stopHardwareListener()
     }
 
+    /// Recreate CoreAudio listeners after coreaudiod has been restarted.
+    func recoverAfterAudioSystemRestart() {
+        stopListening()
+        stopHardwareListener()
+        refreshDeviceList()
+        findAndBindProxyDevice()
+        startHardwareListener()
+    }
+
     /// Read current volume from the target device (proxy or physical).
     private func readCurrentVolume() {
         let targetDevice: AudioObjectID

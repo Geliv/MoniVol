@@ -51,6 +51,9 @@ func main() {
         }
     }
 
+    setupSignalHandlers()
+    logger.info("Signal handlers installed")
+
     // Prevent macOS App Nap from throttling this process.
     // Without this, the system may suspend timers and background work
     // after prolonged playback, causing heartbeat timeouts and audio dropout.
@@ -174,10 +177,6 @@ func main() {
       }
     }
 
-    setupSignalHandlers()
-
-    logger.info("Signal handlers installed")
-
     // Listen for bounce requests from App via Darwin notification
     var bounceToken: Int32 = 0
     let bounceStatus = _notify_register_dispatch(
@@ -198,6 +197,7 @@ func main() {
 func setupSignalHandlers() {
     signal(SIGINT, SIG_IGN)
     signal(SIGTERM, SIG_IGN)
+    signal(SIGUSR1, SIG_IGN)
 
     let sigintSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
     sigintSource.setEventHandler {
@@ -216,9 +216,18 @@ func setupSignalHandlers() {
     }
     sigtermSource.resume()
     signalSources.append(sigtermSource)
+
+    let driverUpdateSource = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
+    driverUpdateSource.setEventHandler {
+        print("\n[Signal] Preparing for driver update")
+        cleanup(restartAudioSystem: false)
+        exit(0)
+    }
+    driverUpdateSource.resume()
+    signalSources.append(driverUpdateSource)
 }
 
-func cleanup() {
+func cleanup(restartAudioSystem: Bool = true) {
     print("\n[Cleanup] Starting cleanup process...")
 
     sleepWakeMonitor.stop()
@@ -236,7 +245,9 @@ func cleanup() {
 
     memoryManager.cleanup()
 
-    restartCoreAudio()
+    if restartAudioSystem {
+        restartCoreAudio()
+    }
 
     logger.info("Cleanup complete")
 }

@@ -88,13 +88,15 @@ class DriverInstaller: ObservableObject {
 
         await MainActor.run { state = .verifying; progress = 0.9 }
 
-        // Verify installation by checking if file exists (fast check)
+        // Verify that the installed bundle is the version shipped by this App.
         let driverPath = "\(driverDestination)/\(driverName)"
-        if FileManager.default.fileExists(atPath: driverPath) {
-            print("Driver verified: file exists at \(driverPath)")
-        } else {
-            throw DriverInstallError.copyFailed("Driver file not found after installation")
+        guard FileManager.default.fileExists(atPath: driverPath),
+              let installedVersion = VersionManager.installedDriverVersion(),
+              let bundledVersion = VersionManager.bundledDriverVersion(),
+              VersionManager.areVersionsEqual(installedVersion, bundledVersion) else {
+            throw DriverInstallError.verificationFailed
         }
+        print("Driver verified: version \(installedVersion)")
 
         refreshControlCenter()
 
@@ -173,16 +175,20 @@ class DriverInstaller: ObservableObject {
     private func installDriverWithPrivileges(from source: String) async throws {
         // Escape single quotes in paths for shell
         let escapedSource = source.replacingOccurrences(of: "'", with: "'\\''")
-        let escapedDest = driverDestination.replacingOccurrences(of: "'", with: "'\\''")
         let driverPath = "\(driverDestination)/\(driverName)"
         let escapedDriverPath = driverPath.replacingOccurrences(of: "'", with: "'\\''")
+        let stagedDriverPath = "\(driverDestination)/.\(driverName).new"
+        let escapedStagedDriverPath = stagedDriverPath.replacingOccurrences(of: "'", with: "'\\''")
 
-        // Combine all operations into single command chain
+        // Prepare the replacement beside the installed bundle first. The old
+        // driver remains intact if copying or permission setup fails.
         let script = """
-        do shell script "rm -rf '\(escapedDriverPath)' && \
-        cp -R '\(escapedSource)' '\(escapedDest)/' && \
-        chown -R root:wheel '\(escapedDriverPath)' && \
-        chmod -R 755 '\(escapedDriverPath)' && \
+        do shell script "rm -rf '\(escapedStagedDriverPath)' && \
+        cp -R '\(escapedSource)' '\(escapedStagedDriverPath)' && \
+        chown -R root:wheel '\(escapedStagedDriverPath)' && \
+        chmod -R 755 '\(escapedStagedDriverPath)' && \
+        rm -rf '\(escapedDriverPath)' && \
+        mv '\(escapedStagedDriverPath)' '\(escapedDriverPath)' && \
         killall coreaudiod" with administrator privileges
         """
 
