@@ -45,11 +45,15 @@ Application audio
 | `Info.plist` | Bundle metadata, factory UUID, bundle identifier (`com.monivol.driver`) |
 | `install.sh` | Installs `build/MoniVolDriver.driver` to `/Library/Audio/Plug-Ins/HAL/` |
 | `uninstall.sh` | Removes the installed driver bundle |
-| `VERSION` | Driver version (`2.0.8`) |
+| `VERSION` | Driver version source; `tools/update_versions.sh` synchronizes it from the latest Git tag before a release build |
 | `vendor/libASPL/` | Third-party C++ wrapper around CoreAudio HAL plugin APIs |
 
 `include/RFSharedAudio.h` is intentionally kept in sync with:
 `packages/host/Sources/CMoniVolAudio/include/RFSharedAudio.h`
+
+The driver is C++ and cannot import `MoniVolCore`. Its `-monivol` UID suffix,
+`/tmp/monivol-devices.txt` path, shared-memory prefix, and Darwin notification
+name must stay synchronized with `packages/core/Sources/MoniVolCore/`.
 
 ## Entry point
 
@@ -71,13 +75,13 @@ Format per line:
 DeviceName|DeviceUID
 ```
 
-`MonitorControlFile()` calls `SyncDevices()` every ~1 second (10x 100ms sleeps).
+`MonitorControlFile()` listens for the `com.monivol.devices-changed` Darwin notification so host updates can be applied immediately. It also calls `SyncDevices()` every ~1 second as a fallback.
 
 `SyncDevices()` behavior:
 
-- Add proxy device when UID exists in control file, heartbeat for that UID is fresh, and UID is not in cooldown.
+- Add proxy device when UID exists in the control file and its host heartbeat is fresh.
 - Remove proxy device when UID is no longer desired (missing from file or heartbeat stale).
-- Enforce a 10-second cooldown (`DEVICE_COOLDOWN_SEC`) after removal to prevent rapid add/remove cycling.
+- Clear cached heartbeat state after a UID disappears so reconnecting hardware starts with fresh liveness state.
 
 ### Proxy device creation
 
@@ -88,7 +92,7 @@ DeviceName|DeviceUID
 - Manufacturer: `"MoniVol"`
 - Default format: 48 kHz, 2 channels
 - Mixing enabled
-- Stream controls via `AddStreamWithControlsAsync(aspl::Direction::Output)`
+- One output stream with custom volume and mute controls attached to it
 - IO/control callbacks handled by `UniversalAudioHandler`
 
 ## Audio path
@@ -101,9 +105,10 @@ When the first client starts IO, the handler:
 2. Maps shared memory with `PROT_READ | PROT_WRITE` and `MAP_SHARED`
 3. Validates protocol version, sample rate, and channel count
 4. Sets `driver_connected = 1`
-5. Pre-allocates conversion buffers (`4096 * RF_MAX_CHANNELS` frames)
+5. Pre-allocates conversion, resampling, and silence buffers used by the realtime callback
 6. Prefills half the ring with silence to reduce cold-start underruns
 7. Retries up to 15 times with exponential backoff (30ms base, capped growth) if connection is not ready
+8. Publishes the current proxy volume and mute state through shared memory
 
 IO clients are reference-counted; `OnStopIO` disconnects shared memory when the last client stops.
 
@@ -118,7 +123,7 @@ This callback runs on the audio IO thread for each buffer. It:
 5. Compensates timestamp gaps/overlaps by prepending silence or skipping frames
 6. Applies linear-interpolation sample-rate conversion when needed
 7. Applies adaptive drift compensation around target ring fill
-8. Writes frames with `rf_ring_write()` and logs periodic stats every 30 seconds
+8. Writes frames with `rf_ring_write()`
 
 Implemented input conversion paths in `ConvertToFloat32Interleaved()`:
 
@@ -160,7 +165,11 @@ In this build, `sizeof(RFSharedAudio)` is 264 bytes, and `audio_data[]` begins a
 | 124 | `host_connected` | `atomic uint32_t` | Host connection flag |
 | 128 | `driver_heartbeat` | `atomic uint64_t` | Driver heartbeat |
 | 136 | `host_heartbeat` | `atomic uint64_t` | Host heartbeat |
-| 144-263 | `_reserved` | `uint8_t[120]` | Future expansion |
+| 144 | `volume_scalar` | `atomic float` | Proxy volume, from 0.0 to 1.0 |
+| 148 | `mute_state` | `atomic int32_t` | Proxy mute state |
+| 152 | `eq_sequence` | `atomic uint32_t` | Sequence lock protecting the EQ snapshot |
+| 156-203 | `eq_snapshot` | `RFEQSnapshot` | Ten EQ bands, preamp, and bypass state |
+| 204-263 | `_reserved` | `uint8_t[60]` | Future expansion |
 | 264+ | `audio_data[]` | `uint8_t[]` | `ring_capacity_frames * bytes_per_frame` bytes |
 
 ### Total mapped size
@@ -176,16 +185,16 @@ Example at 48 kHz, 2 channels, float32, 100 ms (in this build):
 
 Single producer (driver) and single consumer (host), with monotonically increasing 64-bit indices.
 
-- Overflow (`used + write > capacity`): advance `read_index` and increment `overrun_count`
+- Overflow (`used + write > capacity`): write only the remaining free frames, drop the excess new frames, and increment `overrun_count`
 - Underrun on host read: host emits silence and increments `underrun_count`
 
 `rf_ring_write()` accepts float32 input and stores samples in negotiated shared format. `rf_ring_read()` outputs float32 for host-side processing.
 
 ## Health monitoring
 
-Current liveness checks are applied during proxy-device sync (not in the per-buffer IO callback path):
+Current liveness checks are applied during proxy-device sync, triggered by Darwin notifications and the fallback polling loop. Filesystem and recovery work stays out of the realtime audio callback:
 
-- `HostHeartbeatFresh()` maps `/tmp/monivol-<uid>` read-only, tracks `host_heartbeat` changes, and treats heartbeat as stale after 5 seconds with no change.
+- `HostHeartbeatFresh()` maps `/tmp/monivol-<uid>` read-only, tracks `host_heartbeat` changes, and treats heartbeat as stale after 15 seconds with no change.
 - `SyncDevices()` only keeps/adds devices with fresh heartbeat state; stale entries are skipped and existing stale devices are removed.
 
 `UniversalAudioHandler` also includes `IsHealthy()` and `AttemptRecovery()` helpers for shared-memory/file/ring validation, but they are not currently called from `OnWriteMixedOutput()`.
@@ -195,7 +204,7 @@ Current liveness checks are applied during proxy-device sync (not in the per-buf
 - Driver calls `rf_update_driver_heartbeat()` on each `OnWriteMixedOutput` callback.
 - Host calls `rf_update_host_heartbeat()` on a timer (`DispatchSourceTimer` in host code, default 1s interval).
 
-A host heartbeat with no observed change for 5 seconds is treated as stale by `HostHeartbeatFresh()`.
+A host heartbeat with no observed change for 15 seconds is treated as stale by `HostHeartbeatFresh()`.
 
 ## Building
 
@@ -272,9 +281,7 @@ log show --predicate 'subsystem == "com.monivol.driver"' --last 5m
 | `DEFAULT_CHANNELS` | 2 |
 | `HEALTH_CHECK_INTERVAL_SEC` | 3 (defined; helper currently not invoked from callback loop) |
 | `HEARTBEAT_INTERVAL_SEC` | 1 (defined; driver heartbeat is currently callback-driven) |
-| `HEARTBEAT_TIMEOUT_SEC` | 5 |
-| `STATS_LOG_INTERVAL_SEC` | 30 |
-| `DEVICE_COOLDOWN_SEC` | 10 |
+| `HEARTBEAT_TIMEOUT_SEC` | 15 |
 | `RF_MAX_CHANNELS` | 8 |
 | `RF_RING_DURATION_MS_DEFAULT` | 100 |
 | `RF_AUDIO_PROTOCOL_VERSION` | `0x00020000` |

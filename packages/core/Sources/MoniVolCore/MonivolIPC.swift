@@ -18,7 +18,8 @@ public enum MonivolNotifications {
 
 public enum MonivolPaths {
 
-    /// Driver control file: Host writes it, driver polls it.
+    /// Driver control file: Host writes it and posts `devicesChanged`; the
+    /// driver also polls it as a fallback.
     /// Host side: `MoniVolConfig.controlFilePath` / `PathManager.controlFilePath`.
     /// Driver side: `Plugin.cpp` reads this literal directly.
     public static let controlFile = "/tmp/monivol-devices.txt"
