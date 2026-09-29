@@ -96,6 +96,16 @@ chmod +x "$APP_PATH/Contents/MacOS/MoniVolApp"
 
 echo "  MoniVolApp executable copied"
 
+# Sparkle is a dynamic framework; SwiftPM does not embed it in the .app for us.
+SPARKLE_FRAMEWORK="$PROJECT_ROOT/apps/mac/MoniVolApp/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
+if [ ! -d "$SPARKLE_FRAMEWORK" ]; then
+    echo "ERROR: Sparkle.framework not found. Resolve MoniVolApp's Swift package dependencies first."
+    exit 1
+fi
+mkdir -p "$APP_PATH/Contents/Frameworks"
+ditto "$SPARKLE_FRAMEWORK" "$APP_PATH/Contents/Frameworks/Sparkle.framework"
+echo "  Sparkle.framework copied"
+
 # Copy MoniVolHost
 echo "  Copying MoniVolHost..."
 HOST_EXECUTABLE=$(find_swift_product "$PROJECT_ROOT/packages/host" "MoniVolHost")

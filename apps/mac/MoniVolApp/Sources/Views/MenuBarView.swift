@@ -72,7 +72,6 @@ private enum MenuLanguage: String, CaseIterable {
 struct MenuBarView: View {
     @StateObject private var volumeController = VolumeController.shared
     @AppStorage("menuLanguage") private var languageCode = MenuLanguage.english.rawValue
-    @State private var isCheckingUpdates = false
     @State private var showOptions = false
     @State private var showLanguages = false
     @State private var opensAtLogin = false
@@ -271,18 +270,13 @@ struct MenuBarView: View {
 
             Button {
                 showOptions = false
-                isCheckingUpdates = true
-                Task { @MainActor in
-                    await UpdateChecker.checkForUpdates()
-                    isCheckingUpdates = false
-                }
+                UpdateChecker.checkForUpdates()
             } label: {
                 OptionsMenuRow(
                     title: language.text("Check for Updates", "检查更新"),
                     symbol: "arrow.triangle.2.circlepath"
                 )
             }
-            .disabled(isCheckingUpdates)
 
             UninstallButton(language: language, onSelect: { showOptions = false })
 

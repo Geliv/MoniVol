@@ -267,6 +267,23 @@ jobs:
           cat checksums.txt
           echo "✓ Checksums generated"
 
+      - name: Generate signed Sparkle appcast
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
+            echo "ERROR: SPARKLE_PRIVATE_KEY is required to publish updates"
+            exit 1
+          fi
+          SPARKLE_TOOL="apps/mac/MoniVolApp/.build/artifacts/sparkle/Sparkle/bin/generate_appcast"
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | "$SPARKLE_TOOL" \
+            --ed-key-file - \
+            --download-url-prefix "https://github.com/Geliv/MoniVol/releases/download/${{ steps.version.outputs.tag }}/" \
+            dist
+          test -s dist/appcast.xml
+          mkdir -p dist/pages
+          cp dist/appcast.xml dist/pages/appcast.xml
+
       # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
       #  Upload to GitHub Release
       # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -276,9 +293,15 @@ jobs:
           files: |
             dist/*.dmg
             dist/checksums.txt
+            dist/appcast.xml
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Sparkle appcast for GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/pages
 
       # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
       #  Cleanup
@@ -287,3 +310,19 @@ jobs:
         if: always()
         run: |
           security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
+
+  publish-appcast:
+    name: Publish Sparkle appcast
+    needs: build-and-release
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

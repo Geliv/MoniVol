@@ -20,9 +20,6 @@ class SettingsWindow: NSWindow {
 }
 
 struct SettingsView: View {
-	@State private var lastCheckDate: Date?
-	@State private var isCheckingForUpdates = false
-
 	var body: some View {
 		VStack(spacing: 0) {
 			// Header
@@ -54,31 +51,13 @@ struct SettingsView: View {
 							.foregroundColor(.primary)
 
 						VStack(alignment: .leading, spacing: 12) {
-							if let lastCheck = lastCheckDate {
+							Button(action: UpdateChecker.checkForUpdates) {
 								HStack {
-									Text("Last checked:")
-										.foregroundColor(.secondary)
-									Spacer()
-									Text(lastCheck, style: .relative)
-										.foregroundColor(.secondary)
-								}
-								.font(.caption)
-							}
-
-							Button(action: checkForUpdates) {
-								HStack {
-									if isCheckingForUpdates {
-										ProgressView()
-											.scaleEffect(0.8)
-											.frame(width: 16, height: 16)
-									} else {
-										Image(systemName: "arrow.triangle.2.circlepath")
-									}
-									Text(isCheckingForUpdates ? "Checking..." : "Check for Updates")
+									Image(systemName: "arrow.triangle.2.circlepath")
+									Text("Check for Updates")
 								}
 								.frame(maxWidth: .infinity)
 							}
-							.disabled(isCheckingForUpdates)
 							.controlSize(.large)
 						}
 					}
@@ -138,15 +117,6 @@ struct SettingsView: View {
 			}
 		}
 		.frame(width: 500, height: 450)
-	}
-
-	private func checkForUpdates() {
-		isCheckingForUpdates = true
-		Task { @MainActor in
-			await UpdateChecker.checkForUpdates()
-			lastCheckDate = Date()
-			isCheckingForUpdates = false
-		}
 	}
 
 	private func formatDate(_ date: Date) -> String {

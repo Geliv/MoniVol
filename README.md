@@ -53,6 +53,9 @@ Then launch MoniVol and complete steps 2–3 above.
 
 To start MoniVol automatically, open **More options → Open at Login** in the menu bar popover and check the option.
 
+In versions that include Sparkle, **More options → Check for Updates** downloads and installs updates in the app. The update feed is hosted on GitHub Pages; release DMGs remain on GitHub Releases.
+Existing installations need one manual upgrade to a version that includes Sparkle.
+
 MoniVol is not notarized by Apple. If macOS blocks the first launch, go to **System Settings → Privacy & Security** and choose **Open Anyway**, or remove the app's quarantine attribute in Terminal:
 
 ```bash
@@ -101,6 +104,9 @@ cd MoniVol
 ```
 
 If you already cloned the repository without submodules, run `git submodule update --init --recursive` first.
+
+The release workflow signs Sparkle updates with the `SPARKLE_PRIVATE_KEY` GitHub Actions secret and publishes `appcast.xml` to GitHub Pages. The matching public key is embedded in the app. Sparkle update signing is separate from Apple Developer ID signing and notarization.
+Publish releases using a `v`-prefixed tag so the GitHub Pages deployment environment accepts the appcast update.
 
 The universal app, audio Host, and HAL driver are bundled in `dist/MoniVol.app`. Open it directly, or copy it to Applications:
 

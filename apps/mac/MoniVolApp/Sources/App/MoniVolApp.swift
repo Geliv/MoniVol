@@ -22,6 +22,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Register custom font
         registerCustomFont()
+        UpdateChecker.start()
 
         // Check if onboarding is needed
         if !OnboardingState.hasCompleted() {

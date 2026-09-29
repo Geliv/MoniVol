@@ -1,6 +1,6 @@
 # MoniVol App
 
-`MoniVolApp` is the macOS menu bar interface for external display volume control. It provides a volume slider, mute toggle, device selection, onboarding, driver installation, login launch setting, and manual update checks through GitHub Releases. EQ controls have been removed.
+`MoniVolApp` is the macOS menu bar interface for external display volume control. It provides a volume slider, mute toggle, device selection, onboarding, driver installation, login launch setting, and Sparkle updates. EQ controls have been removed.
 
 The App starts `MoniVolHost` when needed. Built-in and Bluetooth output devices remain native; the Host creates virtual devices only for eligible HDMI/DisplayPort displays.
 
