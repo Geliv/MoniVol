@@ -20,7 +20,8 @@ public enum DeviceQuery {
         let status = withUnsafeMutablePointer(to: &name) { ptr in
             AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, ptr)
         }
-        guard status == noErr, let cfName = name?.takeUnretainedValue() else {
+        // CoreAudio 将返回字符串的所有权交给调用者，由 ARC 接管并释放。
+        guard status == noErr, let cfName = name?.takeRetainedValue() else {
             return nil
         }
         return cfName as String
@@ -42,7 +43,7 @@ public enum DeviceQuery {
         let status = withUnsafeMutablePointer(to: &uid) { ptr in
             AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, ptr)
         }
-        guard status == noErr, let cfUID = uid?.takeUnretainedValue() else {
+        guard status == noErr, let cfUID = uid?.takeRetainedValue() else {
             return nil
         }
         return cfUID as String
@@ -58,6 +59,40 @@ public enum DeviceQuery {
 
         var size: UInt32 = 0
         return AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &size) == noErr && size > 0
+    }
+
+    /// 是否有被 CoreAudio 标记为耳机的输出流，不依赖用户修改后的设备名称。
+    public static func isHeadphoneOutput(_ deviceID: AudioObjectID) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreams,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &size) == noErr else {
+            return false
+        }
+        let count = Int(size) / MemoryLayout<AudioStreamID>.size
+        guard count > 0 else { return false }
+        var streams = [AudioStreamID](repeating: 0, count: count)
+        guard AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &streams) == noErr else {
+            return false
+        }
+        for stream in streams {
+            var terminalAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioStreamPropertyTerminalType,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            var terminalType: UInt32 = 0
+            var terminalSize = UInt32(MemoryLayout<UInt32>.size)
+            if AudioObjectGetPropertyData(
+                stream, &terminalAddress, 0, nil, &terminalSize, &terminalType
+            ) == noErr, terminalType == kAudioStreamTerminalTypeHeadphones {
+                return true
+            }
+        }
+        return false
     }
 
     /// Whether the device supports writable hardware volume control via

@@ -34,6 +34,7 @@ struct OutputDevice: Identifiable, Equatable {
     let name: String
     let uid: String
     let isFixedVolume: Bool
+    let isHeadphones: Bool
 
     static func == (lhs: OutputDevice, rhs: OutputDevice) -> Bool {
         lhs.uid == rhs.uid
@@ -99,6 +100,10 @@ class VolumeController: ObservableObject {
     /// Enumerate all output devices (excluding MoniVol proxies from the user-facing list,
     /// but including them internally for binding).
     func refreshDeviceList() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.refreshDeviceList() }
+            return
+        }
         let deviceIDs = getAllOutputDeviceIDs()
         var devices: [OutputDevice] = []
 
@@ -107,39 +112,42 @@ class VolumeController: ObservableObject {
                   let uid = DeviceQuery.uid(deviceID) else { continue }
 
             // Skip MoniVol proxy devices in the user-facing device list
-            if name.contains(ProxyNaming.nameMarker) { continue }
+            if ProxyNaming.isProxyUID(uid) { continue }
 
             let isFixed = !DeviceQuery.hasWritableVolumeControl(deviceID)
-            devices.append(OutputDevice(id: deviceID, name: name, uid: uid, isFixedVolume: isFixed))
+            devices.append(OutputDevice(
+                id: deviceID, name: name, uid: uid, isFixedVolume: isFixed,
+                isHeadphones: DeviceQuery.isHeadphoneOutput(deviceID)
+            ))
         }
 
-        DispatchQueue.main.async { [weak self] in
-            self?.allDevices = devices
-        }
+        allDevices = devices
     }
 
     /// Find the active MoniVol proxy device and bind volume listeners.
     func findAndBindProxyDevice() {
+        // 设备绑定和 UI 状态统一在主线程更新，避免后台旧快照覆盖新设备状态。
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.findAndBindProxyDevice() }
+            return
+        }
         stopListening()
 
         guard let defaultDeviceID = getDefaultOutputDevice() else { return }
         guard let name = DeviceQuery.name(defaultDeviceID),
               let uid = DeviceQuery.uid(defaultDeviceID) else { return }
 
-        if name.contains(ProxyNaming.nameMarker) {
+        if let physicalUID = ProxyNaming.physicalUID(from: uid) {
             // Current default is a proxy device
             proxyDeviceID = defaultDeviceID
             physicalDeviceID = kAudioObjectUnknown
 
             // Extract physical device info from proxy UID
-            let physicalUID = ProxyNaming.physicalUID(from: uid) ?? uid
             let physicalName = name.replacingOccurrences(of: ProxyNaming.nameSuffix, with: "")
 
-            DispatchQueue.main.async { [weak self] in
-                self?.activeDeviceName = physicalName
-                self?.activeDeviceUID = physicalUID
-                self?.isFixedVolumeDevice = true
-            }
+            activeDeviceName = physicalName
+            activeDeviceUID = physicalUID
+            isFixedVolumeDevice = true
 
             readCurrentVolume()
             readCurrentMute()
@@ -155,11 +163,9 @@ class VolumeController: ObservableObject {
                 physicalDeviceID = kAudioObjectUnknown
             }
 
-            DispatchQueue.main.async { [weak self] in
-                self?.activeDeviceName = name
-                self?.activeDeviceUID = uid
-                self?.isFixedVolumeDevice = hasVolume
-            }
+            activeDeviceName = name
+            activeDeviceUID = uid
+            isFixedVolumeDevice = hasVolume
 
             if hasVolume {
                 readCurrentVolume()
@@ -534,8 +540,10 @@ class VolumeController: ObservableObject {
         } else if targetDeviceID != device.id {
             logger.info("Switched to proxy device (ID: \(targetDeviceID)) for \(device.name)")
         }
-        // 切换默认输出设备会触发 kAudioHardwarePropertyDefaultOutputDevice 监听器，
-        // 该监听器会自动调用 findAndBindProxyDevice() 更新 UI 状态。
+        // 主动选择后立即更新绑定，不依赖 Core Audio 重启后可能失效的监听器。
+        if status == noErr {
+            findAndBindProxyDevice()
+        }
     }
 
     /// Find the MoniVol proxy device ID for a given physical device UID.

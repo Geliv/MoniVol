@@ -196,7 +196,8 @@ class DeviceDiscovery {
         let status = withUnsafeMutablePointer(to: &name) { ptr in
             AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, ptr)
         }
-        guard status == noErr, let cfName = name?.takeUnretainedValue() else {
+        // 厂商字符串也由调用者拥有，将其交给 ARC 释放。
+        guard status == noErr, let cfName = name?.takeRetainedValue() else {
             return "Unknown"
         }
         return cfName as String

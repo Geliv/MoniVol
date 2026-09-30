@@ -25,6 +25,7 @@ struct MenuBarView: View {
             ActiveDeviceCard(
                 deviceName: volumeController.activeDeviceName,
                 isFixed: activeDevice?.isFixedVolume ?? false,
+                isHeadphones: activeDevice?.isHeadphones ?? false,
                 canAdjustVolume: volumeController.isFixedVolumeDevice,
                 volume: Binding(
                     get: { volumeController.currentVolume },
@@ -347,6 +348,7 @@ private struct OptionsMenuRow: View {
 private struct ActiveDeviceCard: View {
     let deviceName: String
     let isFixed: Bool
+    let isHeadphones: Bool
     let canAdjustVolume: Bool
     @Binding var volume: Float
     let isMuted: Bool
@@ -356,7 +358,7 @@ private struct ActiveDeviceCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                Image(systemName: isFixed ? "display" : "speaker.wave.2")
+                Image(systemName: deviceSymbol(name: deviceName, isFixed: isFixed, isHeadphones: isHeadphones))
                     .font(.system(size: 23, weight: .light))
                     .foregroundColor(.primary.opacity(0.7))
                     .frame(width: 34, height: 32)
@@ -368,7 +370,7 @@ private struct ActiveDeviceCard: View {
                         .font(.system(size: 15, weight: .medium))
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    Text(deviceCategory(name: deviceName, isFixed: isFixed, language: language))
+                    Text(deviceCategory(name: deviceName, isFixed: isFixed, isHeadphones: isHeadphones, language: language))
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }
@@ -398,8 +400,8 @@ private struct ActiveDeviceCard: View {
                 }
             } else {
                 Text(language.text(
-                    "This device supports native volume control",
-                    "此设备使用系统原生音量控制"
+                    isFixed ? "Waiting for MoniVol virtual output" : "Volume control unavailable",
+                    isFixed ? "等待 MoniVol 虚拟输出连接" : "音量控制暂不可用"
                 ))
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
@@ -441,25 +443,37 @@ private struct FixedBadge: View {
     }
 }
 
-private func deviceCategory(name: String, isFixed: Bool, language: AppLanguage) -> String {
-    if isFixed { return language.text("External Display", "外接显示器") }
-    if name.localizedCaseInsensitiveContains("MacBook")
-        || name.localizedCaseInsensitiveContains("Built-in")
-        || name.contains("内建")
-        || name.contains("扬声器") {
+private func deviceCategory(name: String, isFixed: Bool, isHeadphones: Bool, language: AppLanguage) -> String {
+    switch deviceSymbol(name: name, isFixed: isFixed, isHeadphones: isHeadphones) {
+    case "airpods": return "AirPods"
+    case "airpodspro": return "AirPods Pro"
+    case "airpodsmax": return "AirPods Max"
+    case "headphones": return language.text("Headphones", "耳机")
+    case "display": return language.text("External Display", "外接显示器")
+    case "laptopcomputer":
         return language.text("Built-in Output", "内建输出")
+    default: return language.text("External Speaker", "外接音箱")
     }
-    return language.text("Audio Output", "音频输出")
 }
 
-private func deviceSymbol(name: String, isFixed: Bool) -> String {
+private func deviceSymbol(name: String, isFixed: Bool, isHeadphones: Bool) -> String {
+    let normalizedName = name.lowercased().replacingOccurrences(of: " ", with: "")
+    if normalizedName.contains("airpodsmax") { return "airpodsmax" }
+    if normalizedName.contains("airpodspro") { return "airpodspro" }
+    if normalizedName.contains("airpods") { return "airpods" }
+
+    // 部分设备不提供终端类型，用常见耳机名称补充识别。
+    let headphoneKeywords = ["headphone", "headset", "earphone", "earbud", "earpods", "buds", "耳机", "耳麦"]
+    if isHeadphones || headphoneKeywords.contains(where: { normalizedName.contains($0) }) {
+        return "headphones"
+    }
     if isFixed { return "display" }
     if name.localizedCaseInsensitiveContains("MacBook")
         || name.localizedCaseInsensitiveContains("Built-in")
         || name.contains("内建") {
         return "laptopcomputer"
     }
-    return "speaker.wave.2"
+    return "hifispeaker"
 }
 
 private struct DeviceListSection: View {
@@ -526,7 +540,7 @@ private struct DeviceRow: View {
                     .foregroundColor(isActive ? .blue : .secondary)
                     .frame(width: 20)
 
-                Image(systemName: deviceSymbol(name: device.name, isFixed: device.isFixedVolume))
+                Image(systemName: deviceSymbol(name: device.name, isFixed: device.isFixedVolume, isHeadphones: device.isHeadphones))
                     .font(.system(size: 20, weight: .light))
                     .foregroundColor(.primary.opacity(0.7))
                     .frame(width: 28)
@@ -539,6 +553,7 @@ private struct DeviceRow: View {
                     Text(deviceCategory(
                         name: device.name,
                         isFixed: device.isFixedVolume,
+                        isHeadphones: device.isHeadphones,
                         language: language
                     ))
                     .font(.system(size: 10))

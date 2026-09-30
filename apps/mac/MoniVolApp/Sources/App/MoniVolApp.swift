@@ -9,7 +9,7 @@ import MoniVolCore
 
 // Main entry point - AppKit-based app with SwiftUI views
 @main
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     var statusItem: NSStatusItem?
     var popover: NSPopover?
     var hostProcess: Process?
@@ -232,6 +232,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Create popover with menu content
         popover = NSPopover()
+        popover?.delegate = self
         popover?.behavior = .transient
         popover?.animates = false
         popover?.contentViewController = NSHostingController(rootView: MenuBarView())
@@ -1004,14 +1005,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         alert.runModal()
     }
 
+    func popoverDidClose(_ notification: Notification) {
+        // 点击外部、按 Escape 或主动关闭时，都释放全局事件监听。
+        eventMonitor?.stop()
+    }
+
     @objc func togglePopover() {
         guard let button = statusItem?.button else { return }
 
         if let popover = popover {
             if popover.isShown {
                 popover.performClose(nil)
-                eventMonitor?.stop()
             } else {
+                // Core Audio 重启或设备切换后，先读取当前输出再展示弹窗。
+                VolumeController.shared.refreshDeviceList()
+                VolumeController.shared.findAndBindProxyDevice()
                 // Position the popover directly below the menu bar button
                 popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
 
@@ -1060,6 +1068,7 @@ class EventMonitor {
     }
 
     func start() {
+        guard monitor == nil else { return }
         monitor = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: handler)
     }
 
