@@ -15,6 +15,10 @@ let package = Package(
     targets: [
         .target(
             name: "MoniVolCore"
+        ),
+        .testTarget(
+            name: "MoniVolCoreTests",
+            dependencies: ["MoniVolCore"]
         )
     ]
 )

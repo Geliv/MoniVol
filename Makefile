@@ -1,7 +1,7 @@
 # MoniVol Development Makefile
 # Shortcuts for building, testing, and running MoniVol
 
-.PHONY: help clean build run dev reset bundle install-deps sign verify release test-release quick rebuild dmg full-release changelog update-version
+.PHONY: help clean build run dev reset bundle install-deps sign verify release test-release quick rebuild dmg full-release changelog update-version test
 
 # Default target - show help
 help:
@@ -13,6 +13,7 @@ help:
 	@echo "    make dev          - Start from scratch (reset + build + run with onboarding)"
 	@echo "    make run          - Run app without onboarding (keeps existing state)"
 	@echo "    make reset        - Reset onboarding + uninstall driver"
+	@echo "    make test         - Run offline tests (header sync, ring buffer, unit tests)"
 	@echo ""
 	@echo "  Building:"
 	@echo "    make build        - Build driver, host, and app"
@@ -59,6 +60,38 @@ update-version:
 	@echo "Updating version from git tags..."
 	@./tools/update_versions.sh
 	@echo "✓ Version updated"
+
+# Offline automated tests. Never touches audio devices, the installed
+# driver, or the release build artifacts.
+#
+# 1. The two RFSharedAudio.h copies (driver / host) must be byte-identical.
+# 2. Ring buffer protocol tests (tools/tests/test_ring_buffer.c, pure C11).
+# 3. MoniVolCore unit tests (ProxyNaming).
+# 4. MoniVolApp unit tests (version comparison).
+test:
+	@echo "━━━ MoniVol tests ━━━"
+	@echo "1/4 RFSharedAudio.h sync..."
+	@cmp -s packages/driver/include/RFSharedAudio.h packages/host/Sources/CMoniVolAudio/include/RFSharedAudio.h \
+		|| { echo "❌ RFSharedAudio.h differs between driver and host:"; \
+		     diff -u packages/driver/include/RFSharedAudio.h packages/host/Sources/CMoniVolAudio/include/RFSharedAudio.h; \
+		     exit 1; }
+	@echo "  ✓ headers in sync"
+	@echo "2/4 Ring buffer tests..."
+	@TEST_DIR=$$(mktemp -d) || exit 1; \
+	trap 'rm -rf "$$TEST_DIR"' EXIT; \
+	TEST_BIN="$$TEST_DIR/monivol_ring_test"; \
+	clang -std=c11 -Wall -fsanitize=address -Ipackages/driver/include tools/tests/test_ring_buffer.c -o "$$TEST_BIN" || exit 1; \
+	"$$TEST_BIN" || exit 1
+	@echo "3/4 MoniVolCore unit tests..."
+	@PLATFORM_PATH=$$(xcrun --show-sdk-platform-path 2>/dev/null); \
+	test -d "$$PLATFORM_PATH/Developer/Library/Frameworks/XCTest.framework" \
+		|| { echo "❌ Swift unit tests require full Xcode (XCTest)."; \
+		     echo "Run with DEVELOPER_DIR=/path/to/Xcode.app/Contents/Developer make test"; \
+		     exit 1; }
+	@cd packages/core && swift test
+	@echo "4/4 MoniVolApp unit tests..."
+	@cd apps/mac/MoniVolApp && swift test
+	@echo "━━━ ✓ All tests passed ━━━"
 
 # Build all components
 build: update-version

@@ -13,7 +13,8 @@
 - 本项目的 build 由用户自行执行。Agent 修改代码后提供准确的构建命令；除非用户当次明确要求，否则不要运行 `make build`、`make quick` 或其他构建命令。
 - 首次构建前运行 `git submodule update --init --recursive`。项目使用 macOS 13+、Swift 5.9+、CMake 3.20+；源码构建使用 Xcode Command Line Tools。
 - `./tools/build_release.sh` 构建 arm64 与 x86_64 的驱动、Host 和 App，并生成 `dist/MoniVol.app`。`make quick` 只重新构建 Swift 组件并复用已有驱动；修改驱动后不要用它验证结果。
-- 本项目没有自动化测试入口；音频设备插拔、默认输出切换和实际播放需要手动验证。
+- `make test` 运行离线自动化测试，不构建驱动、不触碰音频环境：两份 `RFSharedAudio.h` 字节一致性、ring buffer 协议（roundtrip / wrap-around / overrun / underrun，`tools/tests/test_ring_buffer.c`）、MoniVolCore 的 `ProxyNaming` 单测和 App 的版本比较单测。音频设备插拔、默认输出切换和实际播放仍需手动验证。
+- Swift 单测依赖完整 Xcode 提供的 XCTest，单独的 Command Line Tools 不支持；可使用 `DEVELOPER_DIR=/path/to/Xcode.app/Contents/Developer make test` 指定工具链。首次解析 App 的 Sparkle 依赖时需要网络，依赖缓存后可离线运行。C 测试启用 AddressSanitizer 检查内存越界。
 - `make build` 会先运行 `tools/update_versions.sh`，按最新 Git tag 更新 App、Host 和驱动版本文件。构建前后检查版本文件差异；没有 tag 时脚本使用 `1.0.0`。
 - 发布更新使用以 `v` 开头的 tag；CI 从 `SPARKLE_PRIVATE_KEY` secret 签名更新，并将 `appcast.xml` 部署到 GitHub Pages。
 - 每次发布新版本时，等待 GitHub Release 工作流完成并上传正式 DMG，再用其 SHA-256 同步 `Geliv/homebrew-tap` 仓库 `Casks/monivol.rb` 中的 `version` 和 `sha256`，验证下载地址后提交并推送 tap。
