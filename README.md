@@ -20,12 +20,10 @@ Use your Mac's volume keys, mute key, and system volume slider with a connected 
 
 - **System volume control**: Adds software volume and mute control for HDMI and DisplayPort displays that lack it.
 - **Menu bar controls**: Adjust volume, mute, switch output devices, and check for updates.
-- **Open at Login**: Start MoniVol automatically when you log in, using a checkbox in the More options menu.
 - **Native SwiftUI interface**: A modern, uncluttered menu bar layout.
 - **Small footprint**: The release DMG is about 5 MB, and MoniVol uses about 30 MB of memory in the author's everyday setup.
 - **Automatic display handling**: Switches to built-in output when a display disconnects, then restores the corresponding MoniVol output when it reconnects.
 - **Selective proxying**: Built-in speakers, Bluetooth headphones, and ordinary USB audio devices continue to use native macOS output.
-- **Apple Silicon and Intel**: Universal app for macOS 13 Ventura or later.
 
 ## Why MoniVol?
 

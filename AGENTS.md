@@ -8,6 +8,10 @@
 - `packages/driver/`：基于 `vendor/libASPL` 子模块的 CoreAudio HAL 虚拟驱动。
 - `tools/`：构建、打包、签名和驱动管理脚本。面向用户的安装与构建说明见 `README.md`；README 的更新说明只写用户操作，不写更新框架与发布配置。
 
+## README 内容约定
+
+- 中英文 README 的功能列表突出 MoniVol 的核心价值与产品特色，不将登录时打开、设备类型图标、Apple Silicon／Intel 双架构支持等标准能力列为特色功能。这些内容仅在安装、使用或兼容性说明中按需出现，不重新添加到功能列表。
+
 ## 开发与验证
 
 - 本项目的 build 由用户自行执行。Agent 修改代码后提供准确的构建命令；除非用户当次明确要求，否则不要运行 `make build`、`make quick` 或其他构建命令。
@@ -24,6 +28,8 @@
 
 - 仅为通过校验、没有可写音量控制的 HDMI／DisplayPort 输出创建设备代理；内建扬声器、蓝牙和普通 USB 音频设备保持原生输出。设备筛选入口是 `DeviceDiscovery.swift` 的 `needsDisplayProxy`。
 - 用物理设备 UID 保存显示器选择与音量状态；`AudioDeviceID` 只在当前设备枚举中有效。断开时移除代理并切回内建输出，重连同一 UID 后等待代理出现再恢复输出。
+- App 设备枚举、绑定和界面状态更新统一在主线程执行；打开弹窗和主动选择设备后刷新绑定。代理身份以 UID 后缀判断，避免依赖显示名称。
+- CoreAudio 的设备名称、UID 和厂商属性返回调用者拥有的 CFString；Swift 使用 `takeRetainedValue()` 交给 ARC 释放。这些属性不能按普通 Get 函数处理。
 - Host 启动和新增设备时，先建立共享内存，再发布驱动控制文件。保持控制文件原子写入，避免无变化的设备通知重复发布；延迟清理共享内存前复查设备是否已重新连接。
 - 修改共享内存协议时同步检查两份 `RFSharedAudio.h`：`packages/driver/include/`、`packages/host/Sources/CMoniVolAudio/include/`。
 - 驱动是 C++，无法引用 `MoniVolCore`；`-monivol` UID 后缀、`/tmp/monivol-devices.txt` 控制文件路径和 Darwin 通知名在 `Plugin.cpp` 中是字面量，改动 `packages/core` 对应常量时必须人工同步驱动端。
@@ -33,3 +39,4 @@
 ## 图标资源
 
 - App 图标由 `apps/mac/MoniVolApp/Sources/Resources/MyIcon.icns` 打包，根目录 `app.png` 用于 README；替换时同步两者，并检查透明边距与实际可见大小。菜单栏图标是 `Resources/icons/monivol-menu.svg`，修改后检查约 16 px 的显示效果。
+- 设备类型图标使用 macOS 内置 SF Symbols，顶部卡片与设备列表共用 `MenuBarView.swift` 中的规则；AirPods 系列按名称识别，其他耳机结合 `DeviceQuery.isHeadphoneOutput` 和名称识别，未知设备使用音箱图标。无需为这些图标打包额外资源。
