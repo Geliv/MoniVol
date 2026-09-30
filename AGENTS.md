@@ -21,6 +21,7 @@
 - Swift 单测依赖完整 Xcode 提供的 XCTest，单独的 Command Line Tools 不支持；可使用 `DEVELOPER_DIR=/path/to/Xcode.app/Contents/Developer make test` 指定工具链。首次解析 App 的 Sparkle 依赖时需要网络，依赖缓存后可离线运行。C 测试启用 AddressSanitizer 检查内存越界。
 - `make build` 会先运行 `tools/update_versions.sh`，按最新 Git tag 更新 App、Host 和驱动版本文件。构建前后检查版本文件差异；没有 tag 时脚本使用 `1.0.0`。
 - 发布更新使用以 `v` 开头的 tag；CI 从 `SPARKLE_PRIVATE_KEY` secret 签名更新，并将 `appcast.xml` 部署到 GitHub Pages。
+- 驱动没有实际代码、协议或构建配置变更时，不更新驱动版本号，保留上次已发布的驱动版本；纯版本号字段变动不构成驱动升级理由。仅 App／Host 变更的发布分别使用 `tools/update_versions.sh <version> --app-only` 和 `--host-only`，不调用无组件限定的全版本更新。该约定同样适用于构建前的版本更新。
 - 每次发布新版本时，等待 GitHub Release 工作流完成并上传正式 DMG，再用其 SHA-256 同步 `Geliv/homebrew-tap` 仓库 `Casks/monivol.rb` 中的 `version` 和 `sha256`，验证下载地址后提交并推送 tap。
 - `make reset`、`packages/driver/install.sh` 和驱动卸载脚本会改动本机音频环境；不要把它们当作普通静态检查命令。
 
