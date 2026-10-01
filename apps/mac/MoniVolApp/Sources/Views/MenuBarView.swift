@@ -134,9 +134,12 @@ struct MenuBarView: View {
             if showOptions {
                 Color.clear
                     .contentShape(Rectangle())
-                    .padding(.top, 52)
                     .onTapGesture { showOptions = false }
             }
+        }
+        .overlay(alignment: .topTrailing) {
+            optionsButton
+                .padding(12)
         }
         .overlay(alignment: .topTrailing) {
             if showOptions {
@@ -144,6 +147,11 @@ struct MenuBarView: View {
                     .padding(.top, 52)
                     .padding(.trailing, 12)
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSPopover.didCloseNotification)) { notification in
+            guard let closedPopover = notification.object as? NSPopover,
+                  closedPopover === (NSApp.delegate as? AppDelegate)?.popover else { return }
+            showOptions = false
         }
     }
 
@@ -168,26 +176,33 @@ struct MenuBarView: View {
             }
             Spacer(minLength: 6)
 
-            Button {
-                showOptions.toggle()
-                showLanguages = false
-                if showOptions { refreshLoginItemState() }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 16, weight: .semibold))
-                    .frame(width: 36, height: 36)
-                    .background(
+            // 为覆盖在点击收起层上方的更多按钮保留布局位置。
+            Color.clear.frame(width: 36, height: 36)
+        }
+    }
+
+    private var optionsButton: some View {
+        Button {
+            showOptions.toggle()
+            showLanguages = false
+            if showOptions { refreshLoginItemState() }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: 36, height: 36)
+                .background {
+                    if showOptions {
                         Circle()
-                            .fill(Color.primary.opacity(showOptions ? 0.12 : 0.06))
+                            .fill(Color.primary.opacity(0.06))
                             .overlay {
                                 Circle().strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
                             }
-                    )
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .help(language.text("More options", "更多选项"))
+                    }
+                }
+                .contentShape(Circle())
         }
+        .buttonStyle(.plain)
+        .help(language.text("More options", "更多选项"))
     }
 
     private var optionsMenu: some View {
