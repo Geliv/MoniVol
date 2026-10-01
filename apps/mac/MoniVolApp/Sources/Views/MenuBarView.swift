@@ -129,7 +129,10 @@ struct MenuBarView: View {
         .padding(12)
         .frame(width: 300)
         .fixedSize(horizontal: false, vertical: true)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background {
+            VisualEffectView(material: .popover, blendingMode: .behindWindow)
+                .allowsHitTesting(false)
+        }
         .overlay {
             if showOptions {
                 Color.clear
