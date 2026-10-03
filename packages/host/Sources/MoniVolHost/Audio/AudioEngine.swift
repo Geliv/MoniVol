@@ -11,7 +11,8 @@ class AudioEngine {
     private let renderer: AudioRenderer
     private let registry: DeviceRegistry
     private var outputUnit: AudioUnit?
-    private var currentDeviceID: AudioDeviceID?
+    /// 引擎正在输出的物理设备；未运行时为 nil。
+    private(set) var currentDeviceID: AudioDeviceID?
 
     init(renderer: AudioRenderer, registry: DeviceRegistry) {
         self.renderer = renderer

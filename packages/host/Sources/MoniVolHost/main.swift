@@ -45,6 +45,9 @@ func main() {
             renderer.setSharedMemory(memory)
         }
     }
+    proxyManager.onBounceFinished = {
+        deviceMonitor.syncWithCurrentDefaultOutput()
+    }
     memoryManager.onWillUnmap = { memory in
         renderer.clearSharedMemory(memory)
     }
@@ -119,7 +122,7 @@ func main() {
 
     // Bounce device to recapture audio from apps that were already running
     if proxyManager.activeProxyDeviceID != 0 {
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.5) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             proxyManager.bounceDevice()
         }
     }
@@ -127,6 +130,7 @@ func main() {
     print("[Step 7.5] Registering sleep/wake handler...")
     sleepWakeMonitor.onSleep = {
         print("[SleepWake] System entering sleep, stopping AudioEngine...")
+        deviceMonitor.cancelEngineRecovery()
         audioEngine.stop()
         logger.info("AudioEngine stopped before sleep")
     }
@@ -135,16 +139,7 @@ func main() {
         deviceMonitor.reregisterListeners()
         deviceMonitor.resetDebounce()
         proxyManager.reregisterVolumeForwarding()
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            guard proxyManager.activePhysicalDeviceID != 0 else { return }
-            do {
-                try audioEngine.switchDevice(proxyManager.activePhysicalDeviceID)
-                logger.info("AudioEngine restarted after wake")
-            } catch {
-                logger.error("AudioEngine restart failed: \(error.localizedDescription)")
-            }
-        }
+        deviceMonitor.scheduleEngineRecovery(after: 0.5)
     }
     sleepWakeMonitor.start()
 
@@ -177,12 +172,13 @@ func main() {
       }
     }
 
-    // Listen for bounce requests from App via Darwin notification
+    // Listen for bounce requests from App via Darwin notification.
+    // Delivered on the main queue because bounce touches routing state.
     var bounceToken: Int32 = 0
     let bounceStatus = _notify_register_dispatch(
         MonivolNotifications.bounceRequest,
         &bounceToken,
-        DispatchQueue.global(qos: .userInitiated)
+        DispatchQueue.main
     ) { _ in
         logger.info("Received bounce request from App")
         proxyManager.bounceDevice()
