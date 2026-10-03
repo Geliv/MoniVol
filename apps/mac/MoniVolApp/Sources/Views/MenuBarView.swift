@@ -405,11 +405,11 @@ private struct ActiveDeviceCard: View {
                     .buttonStyle(.plain)
                     .help(language.text("Mute or unmute", "静音或取消静音"))
 
-                    Slider(value: Binding(
-                        get: { Double(volume) },
-                        set: { volume = Float($0) }
-                    ), in: 0...1)
-                    .tint(.blue)
+                    VolumeSlider(
+                        value: $volume,
+                        accessibilityLabel: language.text("Volume", "音量")
+                    )
+                    .frame(height: 22)
 
                     Text("\(Int(volume * 100))%")
                         .font(.system(size: 12).monospacedDigit())
