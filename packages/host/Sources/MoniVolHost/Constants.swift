@@ -2,23 +2,8 @@ import Foundation
 import CMoniVolAudio
 
 struct MoniVolConfig {
-    /// 采样率的线程安全访问
-    private static var _activeSampleRate: UInt32 = 48000
-    private static var sampleRateLock = os_unfair_lock()
-
-    static var activeSampleRate: UInt32 {
-        get {
-            os_unfair_lock_lock(&sampleRateLock)
-            defer { os_unfair_lock_unlock(&sampleRateLock) }
-            return _activeSampleRate
-        }
-        set {
-            os_unfair_lock_lock(&sampleRateLock)
-            _activeSampleRate = newValue
-            os_unfair_lock_unlock(&sampleRateLock)
-        }
-    }
-    /// Fallback sample rate if device query fails
+    /// 共享内存和 AudioUnit 输入固定使用代理设备的采样率（驱动只提供 48 kHz）。
+    /// 显示器采样率不同时，由 AUHAL 在输出端完成采样率转换。
     static let defaultSampleRate: UInt32 = 48000
     static let defaultChannels: UInt32 = 2
     static let defaultFormat = RF_FORMAT_FLOAT32

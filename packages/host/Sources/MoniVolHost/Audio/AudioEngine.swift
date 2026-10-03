@@ -18,25 +18,6 @@ class AudioEngine {
         self.registry = registry
     }
 
-    /// Query the nominal sample rate of a device via CoreAudio.
-    private func getDeviceNominalSampleRate(_ deviceID: AudioDeviceID) -> UInt32 {
-        var rateAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyNominalSampleRate,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var sampleRate: Float64 = 0
-        var dataSize = UInt32(MemoryLayout<Float64>.size)
-
-        guard AudioObjectGetPropertyData(deviceID, &rateAddress, 0, nil, &dataSize, &sampleRate) == noErr else {
-            return MoniVolConfig.defaultSampleRate
-        }
-
-        let supported: [UInt32] = [44100, 48000, 88200, 96000, 176400, 192000]
-        let rate = UInt32(sampleRate)
-        return supported.min(by: { abs(Int($0) - Int(rate)) < abs(Int($1) - Int(rate)) }) ?? MoniVolConfig.defaultSampleRate
-    }
-
     /// Setup with device fallback - tries preferred device first, then validated devices
     func setup(devices: [PhysicalDevice], preferredDeviceID: AudioDeviceID? = nil) throws {
         guard !devices.isEmpty else {
@@ -108,18 +89,6 @@ class AudioEngine {
 
     /// Attempt setup with a specific device
     private func setupWithDevice(_ device: PhysicalDevice) throws {
-        // Detect sample rate mismatch between Proxy Device config and Physical Device
-        let proxySampleRate = MoniVolConfig.activeSampleRate
-        let physicalSampleRate = getDeviceNominalSampleRate(device.id)
-
-        if proxySampleRate != physicalSampleRate {
-            print("[AudioEngine] Sample rate mismatch detected: proxy=\(proxySampleRate)Hz, physical=\(physicalSampleRate)Hz (\(device.name))")
-            print("[AudioEngine] Updating activeSampleRate to \(physicalSampleRate)Hz to match physical device")
-            MoniVolConfig.activeSampleRate = physicalSampleRate
-        } else {
-            print("[AudioEngine] Sample rate matched: \(physicalSampleRate)Hz (\(device.name))")
-        }
-
         var componentDesc = AudioComponentDescription(
             componentType: kAudioUnitType_Output,
             componentSubType: kAudioUnitSubType_HALOutput,
@@ -187,10 +156,11 @@ class AudioEngine {
             guard let device = registry.devices.first(where: { $0.id == deviceID }) else {
                 throw AudioEngineError.noPhysicalDeviceFound
             }
-            try setupWithDevice(device)
             do {
+                try setupWithDevice(device)
                 try start()
             } catch {
+                // 释放半初始化的 AudioUnit，下次调用会重新创建，避免一直静音。
                 cleanupFailedSetup()
                 throw error
             }
@@ -199,29 +169,9 @@ class AudioEngine {
         guard let unit = outputUnit else { return }
         if currentDeviceID == deviceID { return }
 
-        // 检测采样率变化
-        let newSampleRate = getDeviceNominalSampleRate(deviceID)
-        let needsFormatUpdate = (newSampleRate != MoniVolConfig.activeSampleRate)
-
-        if needsFormatUpdate {
-            print("[AudioEngine] Sample rate change detected: \(MoniVolConfig.activeSampleRate)Hz → \(newSampleRate)Hz")
-            MoniVolConfig.activeSampleRate = newSampleRate
-        }
-
-        var isRunning: UInt32 = 0
-        var size = UInt32(MemoryLayout<UInt32>.size)
-        let wasRunning = AudioUnitGetProperty(
-            unit,
-            kAudioOutputUnitProperty_IsRunning,
-            kAudioUnitScope_Global,
-            0,
-            &isRunning,
-            &size
-        ) == noErr && isRunning != 0
-
-        if wasRunning {
-            AudioOutputUnitStop(unit)
-        }
+        // outputUnit 存在时引擎应处于运行状态（stop() 会直接释放 AudioUnit），
+        // 因此切换后总是重新启动，不依赖切换前的运行状态。
+        AudioOutputUnitStop(unit)
 
         // 切换设备
         var newDeviceID = deviceID
@@ -234,23 +184,19 @@ class AudioEngine {
             UInt32(MemoryLayout<AudioDeviceID>.size)
         )
         guard status == noErr else {
-            if wasRunning { AudioOutputUnitStart(unit) }
+            // 不恢复旧设备：渲染器此时已读取新设备的共享内存，恢复会把音频送到旧显示器。
+            // 直接释放 AudioUnit，下次调用重新创建。
+            cleanupFailedSetup()
             throw AudioEngineError.deviceSwitchFailed(status)
         }
 
+        // 输入格式固定为 48 kHz，设备采样率不同时由 AUHAL 转换，无需重设格式。
+        let startStatus = AudioOutputUnitStart(unit)
+        guard startStatus == noErr else {
+            cleanupFailedSetup()
+            throw AudioEngineError.startFailed(startStatus)
+        }
         currentDeviceID = deviceID
-
-        // 如果采样率变化，重新设置 stream format
-        if needsFormatUpdate {
-            AudioUnitUninitialize(unit)
-            try setFormat()
-            try initialize()
-            print("[AudioEngine] Stream format updated to \(newSampleRate)Hz")
-        }
-
-        if wasRunning {
-            AudioOutputUnitStart(unit)
-        }
     }
 
     private func setOutputDevice(_ deviceID: AudioDeviceID) throws {
@@ -279,7 +225,7 @@ class AudioEngine {
         }
 
         var format = AudioStreamBasicDescription(
-            mSampleRate: Double(MoniVolConfig.activeSampleRate),
+            mSampleRate: Double(MoniVolConfig.defaultSampleRate),
             mFormatID: kAudioFormatLinearPCM,
             mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked | kAudioFormatFlagIsNonInterleaved,
             mBytesPerPacket: 4,

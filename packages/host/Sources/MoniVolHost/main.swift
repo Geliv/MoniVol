@@ -20,6 +20,8 @@ private func _notify_cancel(_ token: Int32) -> UInt32
 
 private let logger = Logger(subsystem: "com.monivol.host", category: "Main")
 private var signalSources: [DispatchSourceSignal] = []
+// 持有 beginActivity 返回的 token，activity 持续到进程退出。
+private var processActivity: NSObjectProtocol?
 
 let deviceDiscovery = DeviceDiscovery()
 let deviceRegistry = DeviceRegistry()
@@ -58,8 +60,9 @@ func main() {
     // Prevent macOS App Nap from throttling this process.
     // Without this, the system may suspend timers and background work
     // after prolonged playback, causing heartbeat timeouts and audio dropout.
-    let _ = ProcessInfo.processInfo.beginActivity(
-        options: [.userInitiated, .latencyCritical],
+    // .userInitiated 会禁止系统空闲睡眠，Host 常驻时不能使用。
+    processActivity = ProcessInfo.processInfo.beginActivity(
+        options: [.userInitiatedAllowingIdleSystemSleep, .latencyCritical],
         reason: "MoniVol realtime audio processing"
     )
 
@@ -85,10 +88,6 @@ func main() {
             line += " - \(note)"
         }
         print(line)
-    }
-
-    if let preferredDevice = proxyManager.resolveCurrentOutputDevice(in: displayDevices) {
-        MoniVolConfig.activeSampleRate = deviceDiscovery.getDeviceNominalSampleRate(preferredDevice.id)
     }
 
     print("[Step 2] Registering device change listeners...")
