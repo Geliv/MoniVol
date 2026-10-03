@@ -3,6 +3,7 @@ import IOKit
 import IOKit.pwr_mgt
 
 // IOKit message constants not exposed through the Swift IOKit module overlay
+private let kIOMessageCanSystemSleepValue: UInt32 = 0xe0000270
 private let kIOMessageSystemWillSleepValue: UInt32 = 0xe0000280
 private let kIOMessageSystemHasPoweredOnValue: UInt32 = 0xe0000300
 
@@ -52,12 +53,14 @@ class SleepWakeMonitor {
 
     fileprivate func handleMessage(_ messageType: UInt32, messageArg: UnsafeMutableRawPointer?) {
         switch messageType {
+        case kIOMessageCanSystemSleepValue:
+            // 不阻止空闲睡眠；不回复这条消息时，系统会等待 30 秒才进入睡眠。
+            allowPowerChange(messageArg)
+
         case kIOMessageSystemWillSleepValue:
             print("[SleepWake] System will sleep")
             onSleep?()
-            if rootPort != 0, let messageArg {
-                IOAllowPowerChange(rootPort, Int(bitPattern: messageArg))
-            }
+            allowPowerChange(messageArg)
 
         case kIOMessageSystemHasPoweredOnValue:
             print("[SleepWake] System did wake — scheduling recovery in \(MoniVolConfig.wakeRecoveryDelay)s")
@@ -68,6 +71,11 @@ class SleepWakeMonitor {
         default:
             break
         }
+    }
+
+    private func allowPowerChange(_ messageArg: UnsafeMutableRawPointer?) {
+        guard rootPort != 0, let messageArg else { return }
+        IOAllowPowerChange(rootPort, Int(bitPattern: messageArg))
     }
 }
 

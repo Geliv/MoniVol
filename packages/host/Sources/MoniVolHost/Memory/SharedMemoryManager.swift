@@ -51,7 +51,7 @@ class SharedMemoryManager {
 
         fchmod(fd, 0o666)
 
-        let sampleRate = MoniVolConfig.activeSampleRate
+        let sampleRate = MoniVolConfig.defaultSampleRate
         let frames = rf_frames_for_duration(
             sampleRate,
             MoniVolConfig.defaultDurationMs
