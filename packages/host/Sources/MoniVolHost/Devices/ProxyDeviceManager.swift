@@ -24,6 +24,9 @@ class ProxyDeviceManager {
     private let preferences = UserDefaults(suiteName: "com.monivol.host") ?? .standard
     private(set) var preferredDisplayUID: String?
     var onActiveProxyChanged: ((String?) -> Void)?
+    /// bounce 窗口结束后在主线程调用，用于按实际默认输出重新同步路由和音频引擎。
+    var onBounceFinished: (() -> Void)?
+    private let bounceWindow: TimeInterval = 1.0
 
     func rememberDisplay(_ uid: String) {
         preferredDisplayUID = uid
@@ -149,32 +152,48 @@ class ProxyDeviceManager {
 
     /// Bounce the default device: proxy → physical → proxy.
     /// Forces apps that cache the device ID to re-bind to the new default.
+    /// Must be called on the main queue; routing state is main-thread only.
     func bounceDevice() {
-        let proxyID = activeProxyDeviceID
-        let physicalID = activePhysicalDeviceID
-        guard proxyID != 0, physicalID != 0 else {
-            logger.info("[Bounce] No active proxy/physical pair — skipping")
+        guard !isDeviceBouncing else {
+            logger.info("[Bounce] Already in progress — skipping")
             return
         }
+        guard let physicalUID = activeProxyUID,
+              activeProxyDeviceID != 0, activePhysicalDeviceID != 0 else {
+            logger.info("[Bounce] No active proxy/physical pair — syncing with current output")
+            onBounceFinished?()
+            return
+        }
+        let physicalID = activePhysicalDeviceID
 
         print("[Bounce] Triggering device bounce to recapture audio streams...")
-        isAutoSwitching = true
-        bounceUntilTime = Date().addingTimeInterval(1.0) // 1s window for async callbacks
+        // DeviceMonitor ignores default-output changes inside this window.
+        bounceUntilTime = Date().addingTimeInterval(bounceWindow)
 
         // Step 1: Switch both default + system output to physical device
         setDefaultAndSystemDevice(physicalID)
 
-        // Step 2: Wait for apps to notice the change
-        Thread.sleep(forTimeInterval: 0.2)
-
-        // Step 3: Switch both back to proxy
-        setDefaultAndSystemDevice(proxyID)
-
-        lastSwitchTime = Date()
-        DispatchQueue.main.asyncAfter(deadline: .now() + switchCooldown) { [weak self] in
-            self?.isAutoSwitching = false
+        // Step 2: Give apps time to notice, then switch back to the proxy
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self else { return }
+            // 返回代理前确认显示器仍连接，且用户没有在等待期间选择其他输出。
+            if self.activeProxyUID == physicalUID,
+               self.registry.find(uid: physicalUID) != nil,
+               self.getCurrentDefaultDevice() == physicalID,
+               let proxyID = self.findProxyDevice(forPhysicalUID: physicalUID) {
+                self.setDefaultAndSystemDevice(proxyID)
+                print("[Bounce] Device bounce complete")
+            } else {
+                logger.info("[Bounce] Output changed during bounce — not returning to proxy")
+            }
         }
-        print("[Bounce] Device bounce complete")
+
+        // Step 3: After the window, resync routing and the engine with the actual default output
+        DispatchQueue.main.asyncAfter(deadline: .now() + bounceWindow) { [weak self] in
+            guard let self else { return }
+            self.bounceUntilTime = .distantPast
+            self.onBounceFinished?()
+        }
     }
 
     /// Set both default output and system output device in one call.
@@ -622,24 +641,23 @@ class ProxyDeviceManager {
             return
         }
 
-        let proxyDeviceID = activeProxyDeviceID
-        let physicalDeviceID = activePhysicalDeviceID
-        guard proxyDeviceID != 0, physicalDeviceID != 0 else { return }
+        enqueueProxyMuteForward()
+    }
 
+    private func enqueueProxyMuteForward() {
+        guard let route = activeRouteSnapshot() else { return }
         volumeForwardQueue.async { [weak self] in
-            self?.forwardProxyMuteToPhysical(proxyDeviceID: proxyDeviceID, physicalDeviceID: physicalDeviceID)
+            self?.forwardProxyMuteToPhysical(route)
         }
     }
 
-    private func forwardProxyMuteToPhysical(proxyDeviceID: AudioDeviceID, physicalDeviceID: AudioDeviceID) {
-        guard let muted = getDeviceMute(proxyDeviceID) else { return }
-        _ = setDeviceMute(physicalDeviceID, muted: muted)
+    private func forwardProxyMuteToPhysical(_ route: RouteSnapshot) {
+        guard let muted = getDeviceMute(route.proxyDeviceID) else { return }
+        _ = setDeviceMute(route.physicalDeviceID, muted: muted)
 
         // Persist mute state for the physical device
-        if let physicalUID = activeProxyUID {
-            let volume = getDeviceVolume(proxyDeviceID) ?? VolumePersistence.defaultVolume
-            volumePersistence.save(uid: physicalUID, volume: volume, muted: muted)
-        }
+        let volume = getDeviceVolume(route.proxyDeviceID) ?? VolumePersistence.defaultVolume
+        volumePersistence.save(uid: route.physicalUID, volume: volume, muted: muted)
     }
 
     private func getDeviceMute(_ deviceID: AudioDeviceID) -> Bool? {
@@ -713,12 +731,7 @@ class ProxyDeviceManager {
         }
 
         enqueueProxyVolumeForward(force: true)
-
-        let proxyID = activeProxyDeviceID
-        let physicalID = activePhysicalDeviceID
-        volumeForwardQueue.async { [weak self] in
-            self?.forwardProxyMuteToPhysical(proxyDeviceID: proxyID, physicalDeviceID: physicalID)
-        }
+        enqueueProxyMuteForward()
 
         if attempt > 1 {
             logger.info("Volume and mute listeners re-registered after wake (attempt \(attempt))")
@@ -727,28 +740,36 @@ class ProxyDeviceManager {
         }
     }
 
-    private func enqueueProxyVolumeForward(force: Bool = false) {
-        let proxyDeviceID = activeProxyDeviceID
-        let physicalDeviceID = activePhysicalDeviceID
-        guard proxyDeviceID != 0, physicalDeviceID != 0 else {
-            return
-        }
+    /// Routing identity captured on the main thread for background volume tasks.
+    private struct RouteSnapshot {
+        let physicalUID: String
+        let proxyDeviceID: AudioDeviceID
+        let physicalDeviceID: AudioDeviceID
+    }
 
+    /// 在主线程取完整快照，后台任务不再读取可能已经变化的路由状态，
+    /// 避免切换显示器时把上一台显示器的音量保存到新显示器的 UID 下。
+    private func activeRouteSnapshot() -> RouteSnapshot? {
+        guard let physicalUID = activeProxyUID,
+              activeProxyDeviceID != 0, activePhysicalDeviceID != 0 else {
+            return nil
+        }
+        return RouteSnapshot(
+            physicalUID: physicalUID,
+            proxyDeviceID: activeProxyDeviceID,
+            physicalDeviceID: activePhysicalDeviceID
+        )
+    }
+
+    private func enqueueProxyVolumeForward(force: Bool = false) {
+        guard let route = activeRouteSnapshot() else { return }
         volumeForwardQueue.async { [weak self] in
-            self?.forwardProxyVolumeToPhysical(
-                proxyDeviceID: proxyDeviceID,
-                physicalDeviceID: physicalDeviceID,
-                force: force
-            )
+            self?.forwardProxyVolumeToPhysical(route, force: force)
         }
     }
 
-    private func forwardProxyVolumeToPhysical(
-        proxyDeviceID: AudioDeviceID,
-        physicalDeviceID: AudioDeviceID,
-        force: Bool = false
-    ) {
-        guard let proxyVolume = getDeviceVolume(proxyDeviceID) else {
+    private func forwardProxyVolumeToPhysical(_ route: RouteSnapshot, force: Bool) {
+        guard let proxyVolume = getDeviceVolume(route.proxyDeviceID) else {
             return
         }
 
@@ -757,13 +778,11 @@ class ProxyDeviceManager {
         }
 
         lastForwardedProxyVolume = proxyVolume
-        _ = setDeviceVolume(physicalDeviceID, volume: proxyVolume)
+        _ = setDeviceVolume(route.physicalDeviceID, volume: proxyVolume)
 
         // Persist volume state for the physical device
-        if let physicalUID = activeProxyUID {
-            let muted = getDeviceMute(proxyDeviceID) ?? false
-            volumePersistence.save(uid: physicalUID, volume: proxyVolume, muted: muted)
-        }
+        let muted = getDeviceMute(route.proxyDeviceID) ?? false
+        volumePersistence.save(uid: route.physicalUID, volume: proxyVolume, muted: muted)
     }
 }
 
@@ -775,7 +794,8 @@ private func proxyVolumeChangedCallback(
 ) -> OSStatus {
     guard let clientData else { return noErr }
     let manager = Unmanaged<ProxyDeviceManager>.fromOpaque(clientData).takeUnretainedValue()
-    manager.handleProxyVolumeChanged(from: objectID)
+    // 回调运行在 HAL 通知线程；路由状态只在主线程读写。
+    DispatchQueue.main.async { manager.handleProxyVolumeChanged(from: objectID) }
     return noErr
 }
 
@@ -787,6 +807,6 @@ private func proxyMuteChangedCallback(
 ) -> OSStatus {
     guard let clientData else { return noErr }
     let manager = Unmanaged<ProxyDeviceManager>.fromOpaque(clientData).takeUnretainedValue()
-    manager.handleProxyMuteChanged(from: objectID)
+    DispatchQueue.main.async { manager.handleProxyMuteChanged(from: objectID) }
     return noErr
 }

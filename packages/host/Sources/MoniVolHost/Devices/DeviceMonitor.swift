@@ -18,6 +18,8 @@ class DeviceMonitor {
     private var devicesListenerRegistered = false
     private var defaultOutputListenerRegistered = false
     private var pendingProxyUIDs: Set<String> = []
+    /// 每次调度或取消唤醒恢复都会递增，旧的重试任务据此失效。
+    private var engineRecoveryGeneration = 0
 
     init(
         registry: DeviceRegistry,
@@ -129,6 +131,54 @@ class DeviceMonitor {
     func resetDebounce() {
         lastHandledDeviceID = 0
         lastHandledTime = .distantPast
+    }
+
+    /// 按实际默认输出同步一次路由和音频引擎。bounce 期间的默认输出事件会被忽略，
+    /// 因此 bounce 结束后需要调用它来核对结果并重建引擎。
+    func syncWithCurrentDefaultOutput() {
+        resetDebounce()
+        handleDefaultOutputChanged()
+    }
+
+    /// 唤醒后重建音频引擎，失败时按 `wakeRetryDelays` 重试。
+    func scheduleEngineRecovery(after delay: TimeInterval) {
+        engineRecoveryGeneration += 1
+        let generation = engineRecoveryGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.recoverEngine(generation: generation, attempt: 1)
+        }
+    }
+
+    /// 让尚未执行的唤醒恢复任务失效，例如系统再次进入睡眠时。
+    func cancelEngineRecovery() {
+        engineRecoveryGeneration += 1
+    }
+
+    private func recoverEngine(generation: Int, attempt: Int) {
+        // 每次执行都读取当时的路由状态：任务已过期、用户已切到原生输出、
+        // 显示器已断开，或引擎已被其他事件重建时都直接结束。
+        // 按 UID 查当前设备 ID，因为唤醒后 AudioDeviceID 可能已变化。
+        guard generation == engineRecoveryGeneration,
+              let uid = proxyManager.activeProxyUID,
+              let device = registry.find(uid: uid),
+              audioEngine.currentDeviceID != device.id else {
+            return
+        }
+
+        do {
+            try audioEngine.switchDevice(device.id)
+            logger.info("AudioEngine restarted after wake (attempt \(attempt))")
+        } catch {
+            guard attempt < MoniVolConfig.wakeRetryMaxAttempts else {
+                logger.error("AudioEngine restart failed after \(attempt) attempts: \(error.localizedDescription)")
+                return
+            }
+            let delay = MoniVolConfig.wakeRetryDelays[attempt]
+            logger.warning("AudioEngine restart failed (attempt \(attempt)), retrying in \(delay)s: \(error.localizedDescription)")
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.recoverEngine(generation: generation, attempt: attempt + 1)
+            }
+        }
     }
 
     fileprivate func handleDeviceListChanged() {
