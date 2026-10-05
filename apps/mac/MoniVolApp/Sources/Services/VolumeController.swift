@@ -66,6 +66,10 @@ class VolumeController: ObservableObject {
     private var muteListenerBlock: AudioObjectPropertyListenerBlock?
     private var hardwareListenerBlock: AudioObjectPropertyListenerBlock?
     private var defaultOutputListenerBlock: AudioObjectPropertyListenerBlock?
+    private var serviceRestartListenerBlock: AudioObjectPropertyListenerBlock?
+    /// 每次 coreaudiod 重启都会递增，旧的恢复重试据此失效。
+    private var serviceRecoveryGeneration = 0
+    private static let serviceRecoveryDelays: [TimeInterval] = [0.5, 1.0, 2.0, 4.0, 8.0]
 
     // Addresses stored as instance vars so start/stop use the same pointer
     private var volumeAddress = AudioObjectPropertyAddress(
@@ -88,11 +92,17 @@ class VolumeController: ObservableObject {
         mScope: kAudioObjectPropertyScopeGlobal,
         mElement: kAudioObjectPropertyElementMain
     )
+    private var serviceRestartedAddress = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyServiceRestarted,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
 
     private init() {
         refreshDeviceList()
         findAndBindProxyDevice()
         startHardwareListener()
+        startServiceRestartListener()
     }
 
     // MARK: - Device Discovery
@@ -125,17 +135,25 @@ class VolumeController: ObservableObject {
     }
 
     /// Find the active MoniVol proxy device and bind volume listeners.
-    func findAndBindProxyDevice() {
+    /// 返回绑定是否完整：默认输出可读，且需要监听的设备已成功注册音量监听。
+    @discardableResult
+    func findAndBindProxyDevice() -> Bool {
         // 设备绑定和 UI 状态统一在主线程更新，避免后台旧快照覆盖新设备状态。
         guard Thread.isMainThread else {
             DispatchQueue.main.async { [weak self] in self?.findAndBindProxyDevice() }
-            return
+            return false
         }
         stopListening()
 
-        guard let defaultDeviceID = getDefaultOutputDevice() else { return }
-        guard let name = DeviceQuery.name(defaultDeviceID),
-              let uid = DeviceQuery.uid(defaultDeviceID) else { return }
+        guard let defaultDeviceID = getDefaultOutputDevice(),
+              let name = DeviceQuery.name(defaultDeviceID),
+              let uid = DeviceQuery.uid(defaultDeviceID) else {
+            // 默认输出暂时不可读（例如 coreaudiod 重启中）时清空旧绑定，避免继续使用失效的设备 ID。
+            proxyDeviceID = kAudioObjectUnknown
+            physicalDeviceID = kAudioObjectUnknown
+            isFixedVolumeDevice = false
+            return false
+        }
 
         if let physicalUID = ProxyNaming.physicalUID(from: uid) {
             // Current default is a proxy device
@@ -152,6 +170,7 @@ class VolumeController: ObservableObject {
             readCurrentVolume()
             readCurrentMute()
             startListening()
+            return volumeListenerBlock != nil
         } else {
             // Current default is a physical device (no proxy)
             proxyDeviceID = kAudioObjectUnknown
@@ -172,6 +191,7 @@ class VolumeController: ObservableObject {
                 readCurrentMute()
                 startListening()
             }
+            return !hasVolume || volumeListenerBlock != nil
         }
     }
 
@@ -418,19 +438,77 @@ class VolumeController: ObservableObject {
         }
     }
 
+    /// coreaudiod 重启后旧设备 ID 和属性监听全部失效，系统通过该属性通知客户端重建。
+    private func startServiceRestartListener() {
+        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            self?.handleServiceRestarted()
+        }
+        serviceRestartListenerBlock = block
+
+        let status = AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject),
+            &serviceRestartedAddress,
+            DispatchQueue.main,
+            block
+        )
+        if status != noErr {
+            logger.error("Failed to add service restart listener: \(formatOSStatus(status))")
+            serviceRestartListenerBlock = nil
+        }
+    }
+
+    private func stopServiceRestartListener() {
+        guard let block = serviceRestartListenerBlock else { return }
+        let status = AudioObjectRemovePropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject),
+            &serviceRestartedAddress,
+            DispatchQueue.main,
+            block
+        )
+        if status != noErr {
+            logger.warning("Failed to remove service restart listener: \(formatOSStatus(status))")
+        }
+        serviceRestartListenerBlock = nil
+    }
+
+    private func handleServiceRestarted() {
+        logger.warning("CoreAudio service restarted, rebinding devices")
+        serviceRecoveryGeneration += 1
+        scheduleServiceRecovery(generation: serviceRecoveryGeneration, attempt: 0)
+    }
+
+    /// 代理尚未初始化或监听注册失败时按退避重试，直到绑定完整；新的重启通知会让旧重试失效。
+    private func scheduleServiceRecovery(generation: Int, attempt: Int) {
+        let delay = Self.serviceRecoveryDelays[attempt]
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, generation == self.serviceRecoveryGeneration else { return }
+            if self.recoverAfterAudioSystemRestart() {
+                logger.info("Devices rebound after CoreAudio service restart (attempt \(attempt + 1))")
+            } else if attempt + 1 < Self.serviceRecoveryDelays.count {
+                self.scheduleServiceRecovery(generation: generation, attempt: attempt + 1)
+            } else {
+                logger.error("Device rebinding failed after CoreAudio service restart (\(attempt + 1) attempts)")
+            }
+        }
+    }
+
     /// Full cleanup — call from applicationWillTerminate.
     func cleanup() {
         stopListening()
         stopHardwareListener()
+        stopServiceRestartListener()
     }
 
     /// Recreate CoreAudio listeners after coreaudiod has been restarted.
-    func recoverAfterAudioSystemRestart() {
+    /// 返回设备绑定和系统监听是否全部恢复。
+    @discardableResult
+    func recoverAfterAudioSystemRestart() -> Bool {
         stopListening()
         stopHardwareListener()
         refreshDeviceList()
-        findAndBindProxyDevice()
+        let bound = findAndBindProxyDevice()
         startHardwareListener()
+        return bound && hardwareListenerBlock != nil && defaultOutputListenerBlock != nil
     }
 
     /// Read current volume from the target device (proxy or physical).

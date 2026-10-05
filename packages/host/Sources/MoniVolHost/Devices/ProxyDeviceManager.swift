@@ -17,6 +17,8 @@ class ProxyDeviceManager {
     private var monitoredProxyDeviceID: AudioDeviceID?
     private var monitoredVolumeElements: [UInt32] = []
     private var monitoredMuteRegistered = false
+    /// 每次发起或取消音量监听重注册都会递增，旧的重试任务据此失效。
+    private var volumeForwardingRetryGeneration = 0
     private let volumeForwardQueue = DispatchQueue(label: "com.monivol.host.proxy-volume-forward")
     private let volumeForwardEpsilon: Float32 = 0.001
     private var lastForwardedProxyVolume: Float32?
@@ -587,7 +589,13 @@ class ProxyDeviceManager {
         }
     }
 
-    private func stopVolumeForwarding() {
+    /// 当前代理的音量监听是否已成功注册。
+    var isVolumeForwardingActive: Bool {
+        activeProxyDeviceID != 0 && monitoredProxyDeviceID == activeProxyDeviceID
+            && !monitoredVolumeElements.isEmpty
+    }
+
+    func stopVolumeForwarding() {
         guard let proxyDeviceID = monitoredProxyDeviceID else { return }
         defer {
             monitoredProxyDeviceID = nil
@@ -705,7 +713,19 @@ class ProxyDeviceManager {
     ///
     /// Because coreaudiod may not be ready immediately after wake, this method retries
     /// registration with increasing delays if the initial attempt fails.
-    func reregisterVolumeForwarding(attempt: Int = 1) {
+    func reregisterVolumeForwarding() {
+        volumeForwardingRetryGeneration += 1
+        reregisterVolumeForwarding(attempt: 1, generation: volumeForwardingRetryGeneration)
+    }
+
+    /// 让尚未执行的音量监听重注册任务失效，例如 coreaudiod 重启后改由服务恢复流程重建时。
+    func cancelVolumeForwardingRetries() {
+        volumeForwardingRetryGeneration += 1
+    }
+
+    private func reregisterVolumeForwarding(attempt: Int, generation: Int) {
+        guard generation == volumeForwardingRetryGeneration else { return }
+
         // stopVolumeForwarding clears monitoredProxyDeviceID, so the same-ID
         // early-return guard in startVolumeForwarding will not block re-registration.
         stopVolumeForwarding()
@@ -722,7 +742,7 @@ class ProxyDeviceManager {
                 let delay = MoniVolConfig.wakeRetryDelays[attempt]
                 print("[VolumeForward] Listener registration failed (attempt \(attempt)/\(MoniVolConfig.wakeRetryMaxAttempts)) — retrying in \(delay)s")
                 DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                    self?.reregisterVolumeForwarding(attempt: attempt + 1)
+                    self?.reregisterVolumeForwarding(attempt: attempt + 1, generation: generation)
                 }
             } else {
                 logger.error("Listener registration failed after \(MoniVolConfig.wakeRetryMaxAttempts) attempts")

@@ -32,6 +32,7 @@
 - App 设备枚举、绑定和界面状态更新统一在主线程执行；打开弹窗和主动选择设备后刷新绑定。代理身份以 UID 后缀判断，避免依赖显示名称。
 - CoreAudio 的设备名称、UID 和厂商属性返回调用者拥有的 CFString；Swift 使用 `takeRetainedValue()` 交给 ARC 释放。这些属性不能按普通 Get 函数处理。
 - Host 启动和新增设备时，先建立共享内存，再发布驱动控制文件。保持控制文件原子写入，避免无变化的设备通知重复发布；延迟清理共享内存前复查设备是否已重新连接。
+- App 和 Host 都监听 `kAudioHardwarePropertyServiceRestarted`。coreaudiod 重启后，旧设备 ID、属性监听和 AudioUnit 全部失效：Host 先释放引擎和代理音量监听，再按 UID 刷新设备 ID、按当前默认输出恢复路由，并以 generation 让旧重试失效；恢复期间不清除显示器偏好。App 清空旧绑定后退避重试，直到绑定完整。
 - 修改共享内存协议时同步检查两份 `RFSharedAudio.h`：`packages/driver/include/`、`packages/host/Sources/CMoniVolAudio/include/`。
 - 驱动是 C++，无法引用 `MoniVolCore`；`-monivol` UID 后缀、`/tmp/monivol-devices.txt` 控制文件路径和 Darwin 通知名在 `Plugin.cpp` 中是字面量，改动 `packages/core` 对应常量时必须人工同步驱动端。
 - 驱动代码更新后，旧的已安装 HAL 驱动不会随 App 源码变化自动替换；运行时验证需确认安装的驱动版本，并在替换后重启 `coreaudiod`。

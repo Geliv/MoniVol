@@ -20,6 +20,10 @@ class DeviceMonitor {
     private var pendingProxyUIDs: Set<String> = []
     /// 每次调度或取消唤醒恢复都会递增，旧的重试任务据此失效。
     private var engineRecoveryGeneration = 0
+    private var serviceRestartListenerRegistered = false
+    /// 每次 coreaudiod 重启或系统睡眠都会递增，旧的服务恢复重试据此失效。
+    private var serviceRecoveryGeneration = 0
+    private var isRecoveringAudioService = false
 
     init(
         registry: DeviceRegistry,
@@ -125,7 +129,30 @@ class DeviceMonitor {
     func reregisterListeners() {
         removeListeners()
         registerListeners()
-        logger.info("Listeners re-registered after wake")
+        logger.info("Listeners re-registered")
+    }
+
+    /// coreaudiod 重启后，设备 ID、属性监听和 AudioUnit 都可能失效，系统通过该属性通知客户端重建。
+    func registerServiceRestartListener() {
+        guard !serviceRestartListenerRegistered else { return }
+
+        // SAFETY: self 是 main.swift 中的全局 let 变量，生命周期与进程一致。
+        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyServiceRestarted,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let status = AudioObjectAddPropertyListener(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            serviceRestartedCallbackC,
+            selfPtr
+        )
+        serviceRestartListenerRegistered = (status == noErr)
+        if status != noErr {
+            logger.error("Failed to register service restart listener (OSStatus: \(status))")
+        }
     }
 
     func resetDebounce() {
@@ -149,9 +176,11 @@ class DeviceMonitor {
         }
     }
 
-    /// 让尚未执行的唤醒恢复任务失效，例如系统再次进入睡眠时。
+    /// 让尚未执行的唤醒恢复和服务恢复任务失效，例如系统再次进入睡眠时。
     func cancelEngineRecovery() {
         engineRecoveryGeneration += 1
+        serviceRecoveryGeneration += 1
+        isRecoveringAudioService = false
     }
 
     private func recoverEngine(generation: Int, attempt: Int) {
@@ -179,6 +208,109 @@ class DeviceMonitor {
                 self?.recoverEngine(generation: generation, attempt: attempt + 1)
             }
         }
+    }
+
+    fileprivate func handleServiceRestarted() {
+        logger.warning("CoreAudio service restarted, rebuilding routing")
+        // 新一轮服务恢复接管：唤醒恢复、上一轮服务恢复和音量监听重试全部失效。
+        engineRecoveryGeneration += 1
+        serviceRecoveryGeneration += 1
+        let generation = serviceRecoveryGeneration
+        isRecoveringAudioService = true
+        proxyManager.cancelVolumeForwardingRetries()
+
+        // 即使设备 ID 没变，旧 AudioUnit 和代理音量监听也已失效，先释放再重建，
+        // 同时绕过 switchDevice / startVolumeForwarding 的同 ID 判断。
+        audioEngine.stop()
+        proxyManager.stopVolumeForwarding()
+        reregisterListeners()
+        resetDebounce()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.recoverAfterServiceRestart(generation: generation, attempt: 1)
+        }
+    }
+
+    private func recoverAfterServiceRestart(generation: Int, attempt: Int) {
+        guard generation == serviceRecoveryGeneration else { return }
+        let isLastAttempt = attempt >= MoniVolConfig.wakeRetryMaxAttempts
+
+        // 先按 UID 刷新注册表中的设备 ID，再按当前默认输出恢复路由。
+        handleDeviceListChanged()
+        if syncRoutingAfterServiceRestart(isLastAttempt: isLastAttempt) {
+            isRecoveringAudioService = false
+            logger.info("Routing recovered after CoreAudio service restart (attempt \(attempt))")
+            return
+        }
+
+        guard !isLastAttempt else {
+            isRecoveringAudioService = false
+            logger.error("Routing recovery failed after CoreAudio service restart (\(attempt) attempts)")
+            return
+        }
+        let delay = MoniVolConfig.wakeRetryDelays[attempt]
+        logger.warning("Routing recovery incomplete (attempt \(attempt)), retrying in \(delay)s")
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.recoverAfterServiceRestart(generation: generation, attempt: attempt + 1)
+        }
+    }
+
+    /// 按当前默认输出恢复路由并重建引擎。返回 true 表示路由已确定，无需继续重试。
+    private func syncRoutingAfterServiceRestart(isLastAttempt: Bool) -> Bool {
+        guard let deviceID = currentDefaultOutputDevice(),
+              let uid = DeviceQuery.uid(deviceID) else {
+            return false
+        }
+
+        // 上一次尝试可能在代理未就绪时注册失败，每次都从头注册音量监听。
+        proxyManager.stopVolumeForwarding()
+
+        if ProxyNaming.isProxyUID(uid) {
+            proxyManager.handleProxySelection(uid, deviceID: deviceID)
+        } else if registry.find(uid: uid) != nil {
+            // 默认输出落在显示器本身时切回对应代理；代理尚未出现则等待下次重试。
+            proxyManager.handlePhysicalSelection(uid)
+        } else {
+            // 首选显示器仍连接时，原生输出可能只是重启过程中的临时状态，继续等待。
+            // 这里不调用 forgetDisplay，显示器偏好只由用户主动切换清除。
+            if !isLastAttempt,
+               let preferred = proxyManager.preferredDisplayUID,
+               registry.find(uid: preferred) != nil {
+                return false
+            }
+            proxyManager.clearActiveProxy()
+            return true
+        }
+
+        guard proxyManager.isVolumeForwardingActive else { return false }
+        do {
+            try audioEngine.switchDevice(proxyManager.activePhysicalDeviceID)
+            return true
+        } catch {
+            logger.warning("AudioEngine restart failed after service restart: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func currentDefaultOutputDevice() -> AudioDeviceID? {
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var deviceID: AudioDeviceID = 0
+        var dataSize = UInt32(MemoryLayout<AudioDeviceID>.size)
+        guard AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &propertyAddress,
+            0,
+            nil,
+            &dataSize,
+            &deviceID
+        ) == noErr, deviceID != kAudioObjectUnknown else {
+            return nil
+        }
+        return deviceID
     }
 
     fileprivate func handleDeviceListChanged() {
@@ -249,25 +381,7 @@ class DeviceMonitor {
         // Skip during device bounce to prevent audio engine thrashing
         guard !proxyManager.isDeviceBouncing else { return }
 
-        var propertyAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-
-        var deviceID: AudioDeviceID = 0
-        var dataSize = UInt32(MemoryLayout<AudioDeviceID>.size)
-
-        guard AudioObjectGetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject),
-            &propertyAddress,
-            0,
-            nil,
-            &dataSize,
-            &deviceID
-        ) == noErr else {
-            return
-        }
+        guard let deviceID = currentDefaultOutputDevice() else { return }
 
         // Debounce: skip if same device within cooldown period
         let now = Date()
@@ -308,7 +422,9 @@ class DeviceMonitor {
             } else {
                 // A native selection while the display is connected is intentional.
                 // During unplug, retain the UID so reconnect can restore it.
-                if let preferred = proxyManager.preferredDisplayUID,
+                // coreaudiod 重启恢复期间默认输出可能短暂落到原生设备，同样保留。
+                if !isRecoveringAudioService,
+                   let preferred = proxyManager.preferredDisplayUID,
                    discovery.enumeratePhysicalDevices().contains(where: { $0.uid == preferred && $0.needsDisplayProxy }) {
                     proxyManager.forgetDisplay()
                 }
@@ -374,5 +490,17 @@ private func defaultOutputChangedCallbackC(
     guard let clientData else { return noErr }
     let monitor = Unmanaged<DeviceMonitor>.fromOpaque(clientData).takeUnretainedValue()
     DispatchQueue.main.async { monitor.handleDefaultOutputChanged() }
+    return noErr
+}
+
+private func serviceRestartedCallbackC(
+    _ objectID: AudioObjectID,
+    _ numAddresses: UInt32,
+    _ addresses: UnsafePointer<AudioObjectPropertyAddress>,
+    _ clientData: UnsafeMutableRawPointer?
+) -> OSStatus {
+    guard let clientData else { return noErr }
+    let monitor = Unmanaged<DeviceMonitor>.fromOpaque(clientData).takeUnretainedValue()
+    DispatchQueue.main.async { monitor.handleServiceRestarted() }
     return noErr
 }

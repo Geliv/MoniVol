@@ -95,6 +95,7 @@ func main() {
 
     print("[Step 2] Registering device change listeners...")
     deviceMonitor.registerListeners()
+    deviceMonitor.registerServiceRestartListener()
 
     print("[Step 3] Creating shared memory files...")
     memoryManager.createMemory(for: displayDevices)
