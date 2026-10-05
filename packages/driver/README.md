@@ -254,8 +254,7 @@ sudo killall coreaudiod
 
 ## Logging
 
-- `os_log` subsystem: `com.monivol.driver`
-- Fallback file log: `/tmp/monivol-driver-debug.log`
+- `os_log` subsystem: `com.monivol.driver`; connection and volume diagnostics use the default level with the `[MoniVol TRACE]` prefix and are persisted by the system.
 
 Example unified log query:
 

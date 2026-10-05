@@ -38,18 +38,15 @@ static os_log_t rf_log = os_log_create("com.monivol.driver", "default");
 #define RF_LOG_INFO(fmt, ...) os_log_info(rf_log, "[MoniVol INFO] " fmt, ##__VA_ARGS__)
 #define RF_LOG_DEBUG(fmt, ...) os_log_debug(rf_log, "[MoniVol DEBUG] " fmt, ##__VA_ARGS__)
 
-// Fallback file logger for debugging when unified logs are unavailable.
+// 连接与音量状态的诊断日志。使用默认级别以便持久保存，保留期限由系统管理；
+// 内容只有设备 UID、路径和数值，标记为 public 便于排查。
 static void RF_DebugLog(const char* fmt, ...) {
-    static std::mutex log_mutex;
-    std::lock_guard<std::mutex> lock(log_mutex);
-    FILE* f = fopen("/tmp/monivol-driver-debug.log", "a");
-    if (!f) return;
+    char message[512];
     va_list args;
     va_start(args, fmt);
-    vfprintf(f, fmt, args);
-    fprintf(f, "\n");
+    vsnprintf(message, sizeof(message), fmt, args);
     va_end(args);
-    fclose(f);
+    os_log(rf_log, "[MoniVol TRACE] %{public}s", message);
 }
 
 namespace {

@@ -6,6 +6,7 @@ import CoreText
 import CoreGraphics
 import CoreAudio
 import MoniVolCore
+import os.log
 
 // Main entry point - AppKit-based app with SwiftUI views
 @main
@@ -256,34 +257,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             return
         }
 
-        let logsDir = FileManager.default.urls(
-            for: .libraryDirectory,
-            in: .userDomainMask
-        ).first!.appendingPathComponent("Logs/MoniVol")
-
-        try? FileManager.default.createDirectory(
-            at: logsDir,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
-
-        let logFile = logsDir.appendingPathComponent("app.log").path
-
-        // Open log file handle once and reuse for all messages
-        let logHandle: FileHandle? = {
-            if !FileManager.default.fileExists(atPath: logFile) {
-                FileManager.default.createFile(atPath: logFile, contents: nil)
-            }
-            let handle = FileHandle(forWritingAtPath: logFile)
-            handle?.seekToEndOfFile()
-            return handle
-        }()
-
+        // 退出清理过程写入统一日志（默认级别会持久保存），保留期限由系统管理。
+        let lifecycleLogger = Logger(subsystem: "com.monivol.app", category: "Lifecycle")
         func log(_ message: String) {
-            let logMessage = "[\(Date())] \(message)\n"
-            if let data = logMessage.data(using: .utf8) {
-                logHandle?.write(data)
-            }
+            lifecycleLogger.notice("\(message, privacy: .public)")
             print(message)
         }
 
@@ -300,7 +277,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         terminateHostAndProxies(logger: log)
 
-        logHandle?.closeFile()
         print("=== applicationWillTerminate COMPLETE ===")
     }
 
