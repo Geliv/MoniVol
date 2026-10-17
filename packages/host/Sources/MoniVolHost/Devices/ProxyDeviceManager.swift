@@ -248,8 +248,10 @@ class ProxyDeviceManager {
                 activePhysicalDeviceID = physicalDevice.id
                 activeProxyDeviceID = currentDeviceID
                 startVolumeForwarding(proxyDeviceID: currentDeviceID)
-                enqueueProxyVolumeForward(force: true)
+                // 必须先恢复持久化音量再强制转发；新代理的初始音量是 100%，
+                // 提前转发会把该默认值写回持久化状态，覆盖用户音量。
                 restoreVolumeState(proxyDeviceID: currentDeviceID, physicalUID: physicalUID)
+                enqueueProxyVolumeForward(force: true)
                 print("[AutoSelect] Already on proxy device - mapped to \(physicalDevice.name)")
             } else {
                 print("[AutoSelect] Already on proxy device - but no physical mapping found")
@@ -261,11 +263,15 @@ class ProxyDeviceManager {
             return
         }
 
-        let selectedUID = registry.find(uid: uid) != nil ? uid : preferredDisplayUID
-        guard let selectedUID, let selectedDevice = registry.find(uid: selectedUID) else {
+        // 当前输出本身就是显示器时优先使用它；否则使用已保存的显示器偏好。
+        // 显示器 UID 的 `_XXXXXXXX` 后缀可能变化，偏好按 base UID 回退匹配。
+        let selectedDevice = registry.find(uid: uid)
+            ?? preferredDisplayUID.flatMap { registry.find(matching: $0) }
+        guard let selectedDevice else {
             print("[AutoSelect] No selected display needs a proxy")
             return
         }
+        let selectedUID = selectedDevice.uid
 
         guard let proxyID = findProxyDevice(forPhysicalUID: selectedUID) else {
             logger.warning("Could not find proxy for device: \(name)")
@@ -291,8 +297,8 @@ class ProxyDeviceManager {
             activePhysicalDeviceID = selectedDevice.id
             activeProxyDeviceID = proxyID
             startVolumeForwarding(proxyDeviceID: proxyID)
-            enqueueProxyVolumeForward(force: true)
             restoreVolumeState(proxyDeviceID: proxyID, physicalUID: selectedUID)
+            enqueueProxyVolumeForward(force: true)
         } else {
             logger.error("Failed to set proxy as default")
             isAutoSwitching = false
@@ -332,8 +338,8 @@ class ProxyDeviceManager {
             activePhysicalDeviceID = physicalDevice.id
             activeProxyDeviceID = deviceID
             startVolumeForwarding(proxyDeviceID: deviceID)
-            enqueueProxyVolumeForward(force: true)
             restoreVolumeState(proxyDeviceID: deviceID, physicalUID: physicalUID)
+            enqueueProxyVolumeForward(force: true)
         } else {
             // The selected proxy has no physical mapping (stale/unplugged). Tear down forwarding state.
             clearActiveProxy()
@@ -368,8 +374,8 @@ class ProxyDeviceManager {
                 activeProxyDeviceID = proxyID
                 activePhysicalDeviceID = physicalDevice.id
                 startVolumeForwarding(proxyDeviceID: proxyID)
-                enqueueProxyVolumeForward(force: true)
                 restoreVolumeState(proxyDeviceID: proxyID, physicalUID: physicalUID)
+                enqueueProxyVolumeForward(force: true)
             } else {
                 logger.error("Failed to switch system default output to proxy device")
                 isAutoSwitching = false
@@ -750,6 +756,11 @@ class ProxyDeviceManager {
             return
         }
 
+        // coreaudiod 在睡眠/唤醒时可能重建代理设备并把它重置为初始音量。
+        // 先恢复持久化状态，避免随后的强制转发把初始音量写回状态文件。
+        if let physicalUID = activeProxyUID {
+            restoreVolumeState(proxyDeviceID: activeProxyDeviceID, physicalUID: physicalUID)
+        }
         enqueueProxyVolumeForward(force: true)
         enqueueProxyMuteForward()
 

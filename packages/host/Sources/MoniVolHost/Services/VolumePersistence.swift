@@ -1,4 +1,5 @@
 import Foundation
+import MoniVolCore
 import os.log
 
 private let logger = Logger(subsystem: "com.monivol.host", category: "VolumePersistence")
@@ -7,6 +8,9 @@ private let logger = Logger(subsystem: "com.monivol.host", category: "VolumePers
 struct DeviceVolumeState: Codable {
     var volumeScalar: Float  // 0.0 - 1.0
     var isMuted: Bool
+    /// 写入时间，用于同一显示器的多个 UID 别名之间挑选最新状态。
+    /// 旧版本文件没有该字段，解码为 nil。
+    var updatedAt: Date?
 }
 
 /// Persists per-device volume and mute state to disk.
@@ -38,16 +42,37 @@ class VolumePersistence {
     func save(uid: String, volume: Float, muted: Bool) {
         queue.async { [weak self] in
             guard let self else { return }
-            self.cache[uid] = DeviceVolumeState(volumeScalar: volume, isMuted: muted)
+            self.cache[uid] = DeviceVolumeState(
+                volumeScalar: volume,
+                isMuted: muted,
+                updatedAt: Date()
+            )
             self.scheduleDebouncedWrite()
         }
     }
 
     /// Load volume state for a device UID.
+    /// 先按完整 UID 精确匹配；显示器 UID 的 `_XXXXXXXX` 后缀在重启或重连后
+    /// 可能变化，此时退回匹配相同 base UID 的旧记录。
     /// Returns cached value if available, otherwise defaults (volume=0.35, muted=false).
     func load(uid: String) -> DeviceVolumeState {
         return queue.sync {
-            cache[uid] ?? DeviceVolumeState(volumeScalar: Self.defaultVolume, isMuted: false)
+            if let exact = cache[uid] {
+                return exact
+            }
+            if let alias = newestAlias(for: uid) {
+                return alias
+            }
+            return DeviceVolumeState(volumeScalar: Self.defaultVolume, isMuted: false)
+        }
+    }
+
+    /// 同一物理显示器可能以多个 UID 出现在状态文件中，取最近写入的一条。
+    private func newestAlias(for uid: String) -> DeviceVolumeState? {
+        let base = DeviceIdentity.baseUID(uid)
+        let aliases = cache.filter { DeviceIdentity.baseUID($0.key) == base }
+        return aliases.values.max {
+            ($0.updatedAt ?? .distantPast) < ($1.updatedAt ?? .distantPast)
         }
     }
 

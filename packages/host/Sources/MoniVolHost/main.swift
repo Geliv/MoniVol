@@ -109,7 +109,7 @@ func main() {
 
     print("[Step 6] Waiting for driver to create proxy devices...")
     if let selectedDisplay = proxyManager.resolveCurrentOutputDevice(in: displayDevices)
-        ?? displayDevices.first(where: { $0.uid == proxyManager.preferredDisplayUID }) {
+        ?? proxyManager.preferredDisplayUID.flatMap({ deviceRegistry.find(matching: $0) }) {
         let deadline = Date().addingTimeInterval(MoniVolConfig.deviceWaitTimeout)
         while Date() < deadline && proxyManager.findProxyDevice(forPhysicalUID: selectedDisplay.uid) == nil {
             Thread.sleep(forTimeInterval: 0.1)

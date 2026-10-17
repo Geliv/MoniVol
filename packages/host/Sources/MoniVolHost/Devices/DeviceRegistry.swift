@@ -23,6 +23,18 @@ class DeviceRegistry {
         return devices.first { $0.uid == uid }
     }
 
+    /// Find a registered device by UID, tolerating a changed display UID index.
+    /// Exact matches always win; a base-UID match is used only when unique.
+    func find(matching uid: String) -> PhysicalDevice? {
+        if let exact = find(uid: uid) {
+            return exact
+        }
+        guard let matchedUID = DeviceIdentity.uniqueMatch(for: uid, among: devices.map { $0.uid }) else {
+            return nil
+        }
+        return find(uid: matchedUID)
+    }
+
     func findAdded(comparing old: [PhysicalDevice]) -> [PhysicalDevice] {
         return devices.filter { new in
             !old.contains { $0.uid == new.uid }

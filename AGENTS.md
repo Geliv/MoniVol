@@ -28,7 +28,7 @@
 ## 音频链路约束
 
 - 仅为通过校验、没有可写音量控制的 HDMI／DisplayPort 输出创建设备代理；内建扬声器、蓝牙和普通 USB 音频设备保持原生输出。设备筛选入口是 `DeviceDiscovery.swift` 的 `needsDisplayProxy`。
-- 用物理设备 UID 保存显示器选择与音量状态；`AudioDeviceID` 只在当前设备枚举中有效。断开时移除代理并切回内建输出，重连同一 UID 后等待代理出现再恢复输出。
+- 用物理设备 UID 保存显示器选择与音量状态；`AudioDeviceID` 只在当前设备枚举中有效。HDMI／DisplayPort 设备 UID 末尾可能带 `_XXXXXXXX` 索引，重启或重连后会变化；偏好与音量状态需通过 `DeviceIdentity` 按 base UID 回退匹配，且仅在匹配唯一时采用。断开时移除代理并切回内建输出，重连同一设备后等待代理出现再恢复输出。
 - App 设备枚举、绑定和界面状态更新统一在主线程执行；打开弹窗和主动选择设备后刷新绑定。代理身份以 UID 后缀判断，避免依赖显示名称。
 - CoreAudio 的设备名称、UID 和厂商属性返回调用者拥有的 CFString；Swift 使用 `takeRetainedValue()` 交给 ARC 释放。这些属性不能按普通 Get 函数处理。
 - Host 启动和新增设备时，先建立共享内存，再发布驱动控制文件。保持控制文件原子写入，避免无变化的设备通知重复发布；延迟清理共享内存前复查设备是否已重新连接。

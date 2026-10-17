@@ -275,7 +275,7 @@ class DeviceMonitor {
             // 这里不调用 forgetDisplay，显示器偏好只由用户主动切换清除。
             if !isLastAttempt,
                let preferred = proxyManager.preferredDisplayUID,
-               registry.find(uid: preferred) != nil {
+               registry.find(matching: preferred) != nil {
                 return false
             }
             proxyManager.clearActiveProxy()
@@ -335,7 +335,14 @@ class DeviceMonitor {
             print("Device removed: \(device.name) (\(discovery.transportTypeName(device.transportType)))")
         }
 
-        if removedDevices.contains(where: { $0.uid == proxyManager.preferredDisplayUID }) {
+        // 显示器 UID 可能只变了后缀（重启/重连）；同一 base UID 的设备重新出现
+        // 时应视为同一次重连，而不是移除。
+        let preferredBase = proxyManager.preferredDisplayUID.map { DeviceIdentity.baseUID($0) }
+        let preferredRemoved = preferredBase.map { base in
+            removedDevices.contains { DeviceIdentity.baseUID($0.uid) == base } &&
+                !newDevices.contains { DeviceIdentity.baseUID($0.uid) == base }
+        } ?? false
+        if preferredRemoved {
             // Keep the preferred display UID for the next connection.
             proxyManager.clearActiveProxy()
             audioEngine.stop()
@@ -425,7 +432,10 @@ class DeviceMonitor {
                 // coreaudiod 重启恢复期间默认输出可能短暂落到原生设备，同样保留。
                 if !isRecoveringAudioService,
                    let preferred = proxyManager.preferredDisplayUID,
-                   discovery.enumeratePhysicalDevices().contains(where: { $0.uid == preferred && $0.needsDisplayProxy }) {
+                   discovery.enumeratePhysicalDevices().contains(where: {
+                       $0.needsDisplayProxy &&
+                           DeviceIdentity.baseUID($0.uid) == DeviceIdentity.baseUID(preferred)
+                   }) {
                     proxyManager.forgetDisplay()
                 }
                 proxyManager.clearActiveProxy()
@@ -435,7 +445,9 @@ class DeviceMonitor {
     }
 
     private func waitForProxyAndSwitch(addedDevices: [PhysicalDevice]) {
-        for device in addedDevices where device.uid == proxyManager.preferredDisplayUID {
+        guard let preferred = proxyManager.preferredDisplayUID else { return }
+        let preferredBase = DeviceIdentity.baseUID(preferred)
+        for device in addedDevices where DeviceIdentity.baseUID(device.uid) == preferredBase {
             guard pendingProxyUIDs.insert(device.uid).inserted else { continue }
             waitForProxyAndSwitch(device, deadline: Date().addingTimeInterval(MoniVolConfig.deviceWaitTimeout))
         }
@@ -443,7 +455,8 @@ class DeviceMonitor {
 
     private func waitForProxyAndSwitch(_ device: PhysicalDevice, deadline: Date) {
         guard registry.find(uid: device.uid) != nil,
-              proxyManager.preferredDisplayUID == device.uid else {
+              let preferred = proxyManager.preferredDisplayUID,
+              DeviceIdentity.baseUID(preferred) == DeviceIdentity.baseUID(device.uid) else {
             pendingProxyUIDs.remove(device.uid)
             return
         }
