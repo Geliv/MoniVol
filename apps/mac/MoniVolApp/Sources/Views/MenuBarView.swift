@@ -3,6 +3,7 @@ import AppKit
 
 struct MenuBarView: View {
     @StateObject private var volumeController = VolumeController.shared
+    @StateObject private var musicLaunchBlocker = MusicLaunchBlocker.shared
     @AppStorage(AppLanguage.storageKey) private var languageCode = AppLanguage.systemDefault.rawValue
     @State private var showOptions = false
     @State private var showLanguages = false
@@ -218,6 +219,21 @@ struct MenuBarView: View {
                 )
             }
             .disabled(isUpdatingLoginItem)
+
+            Button {
+                musicLaunchBlocker.isEnabled.toggle()
+            } label: {
+                OptionsMenuRow(
+                    title: language.text("Block Apple Music", "阻止 Apple Music 启动"),
+                    symbol: nil,
+                    isChecked: musicLaunchBlocker.isEnabled
+                )
+            }
+            .help(language.text(
+                "Closes Apple Music when it launches, including manual launches. Music that is already open stays running.",
+                "Apple Music 启动时将被关闭，包括手动打开。已运行的 Music 不受影响。"
+            ))
+            .accessibilityAddTraits(musicLaunchBlocker.isEnabled ? .isSelected : [])
 
             Button {
                 showOptions = false
@@ -703,10 +719,12 @@ private struct UninstallButton: View {
         }
 
         // Clean up UserDefaults (onboarding state)
+        MusicLaunchBlocker.shared.isEnabled = false
         let defaults = UserDefaults.standard
         for key in ["hasCompletedOnboarding", "onboardingVersion",
                      "driverInstallDate", "lastDriverVersionCheck",
-                     AppLanguage.storageKey, "menuLanguage"] {
+                     AppLanguage.storageKey, "menuLanguage",
+                     MusicLaunchBlocker.storageKey] {
             defaults.removeObject(forKey: key)
         }
         defaults.synchronize()

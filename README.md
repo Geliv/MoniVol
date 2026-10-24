@@ -56,6 +56,8 @@ Then launch MoniVol and complete steps 2–3 above.
 
 To start MoniVol automatically, open **More options → Open at Login** in the menu bar popover and check the option.
 
+To block Apple Music from opening, enable **More options → Block Apple Music**. This option is off by default and works while MoniVol is running. It also blocks manual launches; an already running Music session is left open.
+
 Since v1.1.5, **More options → Check for Updates** downloads and installs updates in the app. Older installations need one manual upgrade to v1.1.5 or later.
 
 If macOS blocks the first launch of a manually installed, unnotarized build, go to **System Settings → Privacy & Security** and choose **Open Anyway**, or remove the app's quarantine attribute in Terminal:

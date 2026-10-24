@@ -71,6 +71,13 @@ enum AppLanguage: String, CaseIterable {
         "External display volume": .init(japanese: "外部ディスプレイの音量", french: "Volume de l’écran externe", german: "Lautstärke des Monitors", russian: "Громкость монитора"),
         "More options": .init(japanese: "その他の操作", french: "Plus d’options", german: "Weitere Optionen", russian: "Дополнительно"),
         "Open at Login": .init(japanese: "ログイン時に開く", french: "Ouvrir à la connexion", german: "Bei Anmeldung öffnen", russian: "Открывать при входе"),
+        "Block Apple Music": .init(japanese: "Apple Music の起動をブロック", french: "Bloquer Apple Music", german: "Apple Music blockieren", russian: "Блокировать Apple Music"),
+        "Closes Apple Music when it launches, including manual launches. Music that is already open stays running.": .init(
+            japanese: "手動で開いた場合も含め、起動する Apple Music を終了します。すでに開いている Music は終了しません。",
+            french: "Ferme Apple Music à son lancement, même manuel. Si Music est déjà ouvert, il reste actif.",
+            german: "Beendet Apple Music beim Start, auch bei manuellem Öffnen. Bereits geöffnetes Music läuft weiter.",
+            russian: "Закрывает Apple Music при запуске, в том числе вручную. Уже открытое приложение Music продолжает работать."
+        ),
         "Could Not Change Login Setting": .init(japanese: "ログイン設定を変更できませんでした", french: "Impossible de modifier le réglage de connexion", german: "Anmeldeeinstellung konnte nicht geändert werden", russian: "Не удалось изменить настройку входа"),
         "Check for Updates": .init(japanese: "更新を確認", french: "Vérifier les mises à jour", german: "Auf Updates prüfen", russian: "Проверить обновления"),
         "About MoniVol": .init(japanese: "MoniVol について", french: "À propos de MoniVol", german: "Über MoniVol", russian: "О MoniVol"),

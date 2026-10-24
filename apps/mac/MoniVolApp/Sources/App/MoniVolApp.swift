@@ -27,6 +27,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // Register custom font
         registerCustomFont()
         UpdateChecker.start()
+        MusicLaunchBlocker.shared.start()
 
         // Check if onboarding is needed
         if !OnboardingState.hasCompleted() {
@@ -249,6 +250,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         isTerminating = true
+        MusicLaunchBlocker.shared.stop()
         stopHostWatchdog()
 
         // If uninstalling, driver and host are already gone — skip heavy cleanup
