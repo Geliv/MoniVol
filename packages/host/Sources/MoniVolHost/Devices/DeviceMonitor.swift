@@ -445,18 +445,17 @@ class DeviceMonitor {
     }
 
     private func waitForProxyAndSwitch(addedDevices: [PhysicalDevice]) {
-        guard let preferred = proxyManager.preferredDisplayUID else { return }
-        let preferredBase = DeviceIdentity.baseUID(preferred)
-        for device in addedDevices where DeviceIdentity.baseUID(device.uid) == preferredBase {
-            guard pendingProxyUIDs.insert(device.uid).inserted else { continue }
-            waitForProxyAndSwitch(device, deadline: Date().addingTimeInterval(MoniVolConfig.deviceWaitTimeout))
-        }
+        guard let preferred = proxyManager.preferredDisplayUID,
+              let device = registry.find(matching: preferred),
+              addedDevices.contains(where: { $0.uid == device.uid }),
+              pendingProxyUIDs.insert(device.uid).inserted else { return }
+        waitForProxyAndSwitch(device, deadline: Date().addingTimeInterval(MoniVolConfig.deviceWaitTimeout))
     }
 
     private func waitForProxyAndSwitch(_ device: PhysicalDevice, deadline: Date) {
         guard registry.find(uid: device.uid) != nil,
               let preferred = proxyManager.preferredDisplayUID,
-              DeviceIdentity.baseUID(preferred) == DeviceIdentity.baseUID(device.uid) else {
+              registry.find(matching: preferred)?.uid == device.uid else {
             pendingProxyUIDs.remove(device.uid)
             return
         }

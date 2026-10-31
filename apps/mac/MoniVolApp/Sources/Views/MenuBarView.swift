@@ -682,12 +682,11 @@ private struct UninstallButton: View {
         }
 
         // Step 1: Kill host and remove driver (requires admin).
-        // Each command is guarded with "|| true" so a single failure
-        // (e.g. coreaudiod restart returning non-zero) does not abort
-        // the entire script and cause the app to skip cleanup.
+        // Driver removal must succeed before user data is cleared. Missing
+        // processes and best-effort temporary-file cleanup are not fatal.
         let script = """
         do shell script "killall MoniVolHost 2>/dev/null || true; \
-        rm -rf /Library/Audio/Plug-Ins/HAL/MoniVolDriver.driver || true; \
+        rm -rf /Library/Audio/Plug-Ins/HAL/MoniVolDriver.driver || exit $?; \
         rm -f /tmp/monivol-devices.txt 2>/dev/null || true; \
         rm -f /tmp/monivol-* 2>/dev/null || true; \
         killall coreaudiod 2>/dev/null || true" with administrator privileges
@@ -697,9 +696,26 @@ private struct UninstallButton: View {
         var error: NSDictionary?
         appleScript?.executeAndReturnError(&error)
 
-        // Proceed with user-level cleanup regardless of AppleScript result.
-        // The admin script may report an error even when it partially succeeded
-        // (e.g. coreaudiod restart returns non-zero), so we always clean up.
+        guard appleScript != nil, error == nil else {
+            // Authorization cancellation leaves the installation untouched. Other
+            // errors may follow partial removal, so retain data for recovery.
+            (NSApp.delegate as? AppDelegate)?.isUninstalling = false
+            if (error?["NSAppleScriptErrorNumber"] as? NSNumber)?.intValue != -128 {
+                let failure = NSAlert()
+                failure.messageText = language.text("Uninstall Failed", "卸载失败")
+                failure.informativeText = language.text(
+                    "The driver may have been partially removed. Your configuration and logs have been kept. Please retry uninstalling the driver.",
+                    "驱动可能已被部分移除。配置和日志已保留，请重试卸载驱动。"
+                )
+                if let message = error?["NSAppleScriptErrorMessage"] as? String {
+                    failure.informativeText += "\n\n" + message
+                }
+                failure.alertStyle = .warning
+                failure.addButton(withTitle: language.text("OK", "好"))
+                failure.runModal()
+            }
+            return
+        }
 
         // Clean up Application Support data
         let fm = FileManager.default
